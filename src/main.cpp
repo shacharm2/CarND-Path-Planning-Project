@@ -14,8 +14,13 @@
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
 #include "spline.h"
+// #include "Eigen/Dense"
 
 using namespace std;
+
+// using Eigen::MatrixXd;
+// using Eigen::VectorXd;
+// using std::vector;
 
 // for convenience
 using json = nlohmann::json;
@@ -187,6 +192,7 @@ int main() {
   ifstream in_map_(map_file_.c_str(), ifstream::in);
 
   string line;
+
   while (getline(in_map_, line)) {
   	istringstream iss(line);
   	double x;
@@ -205,7 +211,6 @@ int main() {
   	map_waypoints_dx.push_back(d_x);
   	map_waypoints_dy.push_back(d_y);
   }
-
   h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
@@ -240,8 +245,8 @@ int main() {
           	double end_path_s = j[1]["end_path_s"];
           	double end_path_d = j[1]["end_path_d"];
 
-						// vector<double> xy = getXY(end_path_s, end_path_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-						// vector<double> sd = getFrenet(car_x, car_y, car_yaw, map_waypoints_x, map_waypoints_y);
+			// vector<double> xy = getXY(end_path_s, end_path_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+			// vector<double> sd = getFrenet(car_x, car_y, car_yaw, map_waypoints_x, map_waypoints_y);
 
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
@@ -251,56 +256,137 @@ int main() {
           	vector<double> next_x_vals;
           	vector<double> next_y_vals;
 
-
           	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-			double dt = 0.02;
-			
-			double pos_x, pos_y, pos_s, angle;
+			double T = 1, dt = 0.02;  // [sec] cycle time, step time
+			double ref_vel = 48;
+			double prev_pos_x, prev_pos_y, pos_x = car_x, pos_y = car_y, pos_s = car_s, angle = deg2rad(car_yaw);
+			vector<double> anchor_x, anchor_y;
+
 			int path_size = previous_path_x.size();
 			for(int i = 0; i < path_size; i++)
 			{
 				next_x_vals.push_back(previous_path_x[i]);
 				next_y_vals.push_back(previous_path_y[i]);
 			}
+			//double vs = (car_speed == 0 ? 1:car_speed);
 
-			// evaluate angle
-			// cout << path_size << endl;
 			if(path_size < 2)
 			{
-				pos_x = car_x;
-				pos_y = car_y;
-				pos_s = car_s;
-				angle = car_yaw;
-				// double prev_car_x = pos_x - dt * car_speed * cos(car_yaw);
-				// double prev_car_y = pos_x - dt * car_speed * sin(car_yaw);
+				// pos_x = car_x;// pos_y = car_y;// pos_s = car_s;// angle = car_yaw;
+				prev_pos_x = pos_x - dt * ref_vel * cos(car_yaw);
+				prev_pos_y = pos_y - dt * ref_vel * sin(car_yaw);
 			}
 			else
 			{
 				pos_x = previous_path_x[path_size-1];
 				pos_y = previous_path_y[path_size-1];
 
-				double pos_x2 = previous_path_x[path_size-2];
-				double pos_y2 = previous_path_y[path_size-2];
-				angle = atan2(pos_y-pos_y2, pos_x-pos_x2);
+				prev_pos_x = previous_path_x[path_size-2];
+				prev_pos_y = previous_path_y[path_size-2];
+				angle = atan2(pos_y-prev_pos_y, pos_x-prev_pos_x);
 				vector<double> sd = getFrenet(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
 				pos_s = sd[0];
 			}
 
-			double dist_inc = 0.5;
+			// previous anchors
+			anchor_x.push_back(prev_pos_x);
+			anchor_y.push_back(prev_pos_y);
+
+			anchor_x.push_back(pos_x);
+			anchor_y.push_back(pos_y);
+
+			// next anchors
+			double D = 30; // [m] //car_speed * T;
+			int lane = 1;
+			double pos_d = 2 + 4 * lane;
+			//pos_d = 2 + 4*lane
+			// int lane = (int)((pos_d - 2) / 4);
+
+			// cout <<"D="<<D<<endl;
+			for (int id = 0; id < 3; id++)
+			{
+				cout << "pos_s + (" << (id+1) << ") * D = " << pos_s + (id+1) * D << endl;
+				vector<double> wp = getXY(pos_s + (id+1) * D, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+				anchor_x.push_back(wp[0]);
+				anchor_y.push_back(wp[1]);
+			}
+
+			// transform to car coordiantes
+			// cout << "anchor_x.size()=" <<anchor_x.size()<<endl;
+			// cout << "anchor_y.size()=" <<anchor_y.size()<<endl;
+			cout << "anchors" << endl;
+			for (int ia = 0; ia < anchor_x.size(); ia++)
+			{
+				double _x = anchor_x[ia] - pos_x, _y = anchor_y[ia] - pos_y;
+				anchor_x[ia] = _x * cos(angle) + _y * sin(angle);
+				anchor_y[ia] = _y * cos(angle) - _x * sin(angle);
+				cout << anchor_x[ia] << "," << anchor_y[ia] << endl;
+			}
+			cout << endl;
+
+			// create a spline
+			tk::spline spline_estimator;
+
+			spline_estimator.set_points(anchor_x, anchor_y);
+
+			double target_x = D, target_y = spline_estimator(D);
+			double distance = sqrt(pow(target_x, 2) + pow(target_y, 2));
+			
+			// vs = car_speed;
+			// if (car_speed == 0)
+			// {
+			// 	vs = 49.5;
+			// }
+			int N = (int)(distance / (dt * ref_vel / 2.24));
+
+			cout << "N=" << N << endl;
+			cout << "distance=" << distance << endl;
+			// cout << "vs=" << vs << endl;
+			cout << "dt=" << dt << endl;
+
+
 			double next_d = 6, next_s = pos_s;
+			double dist_inc = 0.5;
+			double x_prev = -1, y_prev = -1;
 			for(int i = 0; i < 50-path_size; i++)
 			{    
-				next_s = pos_s + (i+1) * dist_inc;
-				vector<double> xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+				if (false)
+				{
+					next_s = pos_s + (i+1) * dist_inc;
+					vector<double> xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+					next_x_vals.push_back(xy[0]);
+					next_y_vals.push_back(xy[1]);
+				}
+				else
+				{
+					double xc = (i+1) * target_x / N;
+					double yc = spline_estimator(xc);
+					// cout << "xc,yc=" << xc << "," << yc << endl;
 
-				next_x_vals.push_back(xy[0]);
-				next_y_vals.push_back(xy[1]);
+					double x = xc * cos(angle) - yc * sin(angle) + pos_x;
+					double y = xc * sin(angle) + yc * cos(angle) + pos_y;
+					// vector<double> xy = getXY(xf_s, yf_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+					next_x_vals.push_back(x);
+					next_y_vals.push_back(y);
 
-				// next_x_vals.push_back(pos_x+(dist_inc)*cos(angle+(i+1)*(pi()/100)));
-				// next_y_vals.push_back(pos_y+(dist_inc)*sin(angle+(i+1)*(pi()/100)));
-				// pos_x += (dist_inc)*cos(angle+(i+1)*(pi()/100));
-				// pos_y += (dist_inc)*sin(angle+(i+1)*(pi()/100));
+					if (x_prev == -1) {
+						cout << "i, pos_x,pos_y, xc,yc, x,y=" << i << ", " << pos_x << " " << pos_y << ", " << xc << " " << yc << ", " << x << " " << y << endl;
+					}
+					else {
+						double vx = (x - x_prev) / dt, vy = (y - y_prev) / dt;
+						cout << "i, pos_x,pos_y, xc,yc, x,y, vx, vy=" << i << ", " << pos_x << " " << pos_y << ", " << xc << " " << yc << ", " << x << " " << y << "," << vx << " " << vy << endl;
+					}
+					x_prev = x;
+					y_prev = y;
+
+				}
 			}
+
+			for (int i = 0; i < next_x_vals.size(); i++) {
+				cout << next_x_vals[i] << " ";
+			}
+			cout << endl;
+			cout << "---------------------------------------------------------------" << endl;
 
 
           	msgJson["next_x"] = next_x_vals;
