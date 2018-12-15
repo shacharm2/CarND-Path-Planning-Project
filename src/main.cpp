@@ -1,3 +1,8 @@
+/*
+	cost function - to deal with how to change lanes, start @ quiz
+								- what's the cost of being in every lane, predict into the future location of cars
+	https://github.com/ckyrkou/naive_bayes_classifier_cpp
+*/
 #include <fstream>
 #include <math.h>
 #include <uWS/uWS.h>
@@ -8,6 +13,7 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
+#include "spline.h"
 
 using namespace std;
 
@@ -234,6 +240,9 @@ int main() {
           	double end_path_s = j[1]["end_path_s"];
           	double end_path_d = j[1]["end_path_d"];
 
+						// vector<double> xy = getXY(end_path_s, end_path_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+						// vector<double> sd = getFrenet(car_x, car_y, car_yaw, map_waypoints_x, map_waypoints_y);
+
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
@@ -244,6 +253,56 @@ int main() {
 
 
           	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
+			double dt = 0.02;
+			
+			double pos_x, pos_y, pos_s, angle;
+			int path_size = previous_path_x.size();
+			for(int i = 0; i < path_size; i++)
+			{
+				next_x_vals.push_back(previous_path_x[i]);
+				next_y_vals.push_back(previous_path_y[i]);
+			}
+
+			// evaluate angle
+			// cout << path_size << endl;
+			if(path_size < 2)
+			{
+				pos_x = car_x;
+				pos_y = car_y;
+				pos_s = car_s;
+				angle = car_yaw;
+				// double prev_car_x = pos_x - dt * car_speed * cos(car_yaw);
+				// double prev_car_y = pos_x - dt * car_speed * sin(car_yaw);
+			}
+			else
+			{
+				pos_x = previous_path_x[path_size-1];
+				pos_y = previous_path_y[path_size-1];
+
+				double pos_x2 = previous_path_x[path_size-2];
+				double pos_y2 = previous_path_y[path_size-2];
+				angle = atan2(pos_y-pos_y2, pos_x-pos_x2);
+				vector<double> sd = getFrenet(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
+				pos_s = sd[0];
+			}
+
+			double dist_inc = 0.5;
+			double next_d = 6, next_s = pos_s;
+			for(int i = 0; i < 50-path_size; i++)
+			{    
+				next_s = pos_s + (i+1) * dist_inc;
+				vector<double> xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+				next_x_vals.push_back(xy[0]);
+				next_y_vals.push_back(xy[1]);
+
+				// next_x_vals.push_back(pos_x+(dist_inc)*cos(angle+(i+1)*(pi()/100)));
+				// next_y_vals.push_back(pos_y+(dist_inc)*sin(angle+(i+1)*(pi()/100)));
+				// pos_x += (dist_inc)*cos(angle+(i+1)*(pi()/100));
+				// pos_y += (dist_inc)*sin(angle+(i+1)*(pi()/100));
+			}
+
+
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
