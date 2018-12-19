@@ -115,29 +115,43 @@ void Vehicle::set_target(const double pos_x, const double pos_y, const double v_
 	// double x_target = pos_x + dt * v_start * cos(angle) + 0.5 * a * cos(angle) * dt * dt;
 	// double y_target = pos_y + dt * v_start * sin(angle) + 0.5 * a * sin(angle) * dt * dt;
 
-	double x_target = pos_x + dt * v_end * cos(angle);
-	double y_target = pos_y + dt * v_end * sin(angle);
-
-	// double x_target = pos_x + t_end * v_end * cos(angle);
-	// double y_target = pos_y + t_end * v_end * sin(angle);//;v_start * sin(angle) + 0.5 * a * sin(angle) * dt * dt;
-
-	vector<double> sd_target = getFrenet(x_target, y_target, angle, maps_x, maps_y);
-	vector<double> d_final = vector<double>({get_pose(target_lane), 0, 0});
-	vector<double> s_final = vector<double> ({sd_target[0], v_end, 10});
-
 	// if (jmt_estimator_s.init)
 	// {
 	// 	s_init = this->jmt_estimator_s.eval(t_start);
 	// 	d_init = this->jmt_estimator_d.eval(t_start);
 	// }
 	// else
-	if (d_init.empty())
+	//if (d_init.empty())
+	double a = (v_end - v_start) / dt;
+	if (!this->jmt_estimator_d.init)
 	{
-		//double x_init = pos_x + t_start * v_start * cos(angle);
-		//double x_init = pos_y + t_start * v_start * sin(angle);
 		vector<double> sd_target = getFrenet(pos_x, pos_y, angle, maps_x, maps_y);
 		d_init = vector<double>({get_pose(lane), 0, 0});
-		s_init = vector<double> ({sd_target[0], v_start, 0});
+		s_init = vector<double> ({sd_target[0], v_start, a});
+	}
+	else
+	{
+		d_init = this->jmt_estimator_d.eval(t_start);
+		s_init = this->jmt_estimator_s.eval(t_start);
+	}
+
+	// double x_target = pos_x + dt * v_end * cos(angle);
+	// double y_target = pos_y + dt * v_end * sin(angle);
+	double x_target = pos_x + dt * v_start * cos(angle) + 0.5 * a * cos(angle) * dt * dt;
+	double y_target = pos_y + dt * v_start * sin(angle) + 0.5 * a * sin(angle) * dt * dt;
+
+	vector<double> sd_target = getFrenet(x_target, y_target, angle, maps_x, maps_y);
+	vector<double> d_final = vector<double>({get_pose(target_lane), 0, 0});
+	vector<double> s_final;
+	cout << "v_start = " << v_start << endl;
+	cout << "s_init +10 vs st_target " << s_init[0] << ", " << sd_target[0] << endl;
+	if (v_start < 10){
+		cout << "low" << endl;
+		s_final = vector<double> ({s_init[0] + 10, v_end, 0});
+	}
+	else {
+		cout << "high" << endl;
+		s_final = vector<double> ({sd_target[0], v_end, 0});
 	}
 
 	this->jmt_estimator_s.set_points(s_init, s_final, t_end - t_start + 0.02);
