@@ -49,7 +49,30 @@ string hasData(string s) {
   return "";
 }
 
+float goal_distance_cost(int goal_lane, int intended_lane, int final_lane, float distance_to_goal) {
+    /*
+    The cost increases with both the distance of intended lane from the goal
+    and the distance of the final lane from the goal. The cost of being out of the 
+    goal lane also becomes larger as vehicle approaches the goal.
+    */
+    
+    float cost = 1 - exp(-2*abs(2 * goal_lane - intended_lane - final_lane) / distance_to_goal);
 
+    return cost;
+}
+
+
+
+float inefficiency_cost(int target_speed, int intended_lane, int final_lane, vector<int> lane_speeds) {
+    /*
+    Cost becomes higher for trajectories with intended lane and final lane that have traffic slower than target_speed.
+    */
+    
+    //TODO: Replace cost = 0 with an appropriate cost function.
+    float cost = 1 - exp(-(2 * target_speed - (float)lane_speeds[intended_lane] - (float)lane_speeds[final_lane]) / target_speed);
+
+    return cost;
+}
 
 
 int getFrontVehicle(vector<vector<double>> sensor_fusion, int target_lane, double car_s, double t_bias, double& dist)
@@ -186,9 +209,9 @@ int main() {
 			}
 			
 			int prev_car_lane = car_lane;
-			if (car_speed > 10)
+			if (car_speed > 20)
 			{
-				car_lane = 2;
+				car_lane = 0;
 			}
 
 
@@ -204,14 +227,14 @@ int main() {
 			double T = 1;
 			double dt = T / 50;  // [sec] cycle time, step time
 			double v_max = 21.5; // m/sec ~ 48 mph 
-			double D = 30; // [m]
+			double D = 60; // [m]
 
 			double a_max = 10; // m/s^2
 			double max_jerk = 10; // m/s^3
 			double t_prev = dt * prev_path_size;
 
 			// double safe_dist = D  + T * car_speed;
-			double safe_dist = D;
+			double safe_dist = D / 2;
 
 			// sensor fusion
 			const int nID = 0, nX = 1, nY = 2, nVX = 3, nVY = 4, nS = 5, nD = 6;
@@ -242,7 +265,8 @@ int main() {
 
 			int front_car_id = front_vehicles[car_lane];
 
-			if (front_car_id == -1 || front_distances[car_lane] > safe_dist) {
+
+			if	(front_car_id == -1 || front_distances[car_lane] > safe_dist) {
 				// double dspeed = (a_max/2) * (T - t_prev) / 5; //a_max * (T ) / 2;
 				// if (car_speed > 10){
 				// 	dspeed = (a_max/2) * (T -t_prev);
@@ -357,18 +381,18 @@ int main() {
 			{
 				//vector<double> wp = getXY(sd_init[0] + (id+1) * D, sd_init[1], map_waypoints_s, map_waypoints_x, map_waypoints_y);
 				//vector<double> wp = getXY(sd_init[0] + (id+1) * D, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-				// if (id == 0){
-				// 	pos_d = get_pose(prev_car_lane);
-				// }
-				// else if (id == 1) {
-				// 	pos_d = 0.5 * (get_pose(prev_car_lane) + get_pose(car_lane));
-				// }
-				// else {
-				// 	pos_d = get_pose(car_lane);
-				// }
+				if (id == 0){
+					pos_d = get_pose(prev_car_lane);
+				}
+				else if (id == 1) {
+					pos_d = 0.5 * (get_pose(prev_car_lane) + get_pose(car_lane));
+				}
+				else {
+					pos_d = get_pose(car_lane);
+				}
 				// pos_d  = get_pose(prev_car_lane);
 				// if (id > 1) {
-				pos_d  = get_pose(car_lane);
+				// pos_d  = get_pose(car_lane);
 				// }			
 					//pos_d = (id == 0 ? get_pose(prev_car_lane) : get_pose(car_lane));
 				vector<double> wp = getXY(pos_s + (id+1) * D, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
