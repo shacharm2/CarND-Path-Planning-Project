@@ -84,9 +84,10 @@ vector< vector<double> > get_frenet_full_state(double x, double y, double angle,
 }
 
 
-Vehicle::Vehicle(const int lane)
+Vehicle::Vehicle(const int lane, const double sampling_time)
 {
 	this->lane = lane;
+	this->sampling_time = sampling_time;
 	this->state = LANE_KEEP;
 }
 

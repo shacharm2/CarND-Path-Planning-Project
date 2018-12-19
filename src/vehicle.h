@@ -35,7 +35,7 @@ vector< vector<double> > get_frenet_full_state(double x, double y, double angle,
 class Vehicle
 {
 public:
-	Vehicle(const int lane);
+	Vehicle(const int lane, const double sampling_time);
 	~Vehicle() {}
 	void set_map(const vector<double> &maps_x, const vector<double> &maps_y);
 	void cycle(PhysicalState physical_state, const vector<double> x, const vector<double> y);
@@ -60,9 +60,9 @@ public:
 
 	trajectory jmt_estimator_s = trajectory("JMT");
 	trajectory jmt_estimator_d = trajectory("JMT");
+	double sampling_time;
 private:
 
-	const double sampling_time = 0.02;
 	const double frame_time = 1;
 	void update(const vector<double> x, const vector<double> y);	
 	

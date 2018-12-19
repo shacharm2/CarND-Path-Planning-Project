@@ -122,7 +122,7 @@ int main() {
 
   int car_lane = 1;
   double ref_vel = 0;
-  Vehicle car(car_lane);
+  Vehicle car(car_lane, 0);
   string method = "JMT";
 //   string method = "spline";
   
@@ -171,10 +171,7 @@ int main() {
 
 			double angle = deg2rad(car_yaw);			
 			car_speed /= 2.24;
-			if (car_speed > 10)
-			{
-				car_lane = 0;
-			}
+
 			cout << "car_speed=" << car_speed<<endl;
 			int prev_path_size = previous_path_x.size();
 			for(int i = 0; i < prev_path_size; i++)
@@ -188,7 +185,11 @@ int main() {
 				car_s = end_path_s;
 			}
 			
-
+			int prev_car_lane = car_lane;
+			if (car_speed > 10)
+			{
+				car_lane = 2;
+			}
 
 
 			// car.clear_trajectory();
@@ -205,12 +206,12 @@ int main() {
 			double v_max = 21.5; // m/sec ~ 48 mph 
 			double D = 30; // [m]
 
-			double a_max = 9.8; // m/s^2
+			double a_max = 10; // m/s^2
 			double max_jerk = 10; // m/s^3
 			double t_prev = dt * prev_path_size;
 
-			double safe_dist = D  + T * car_speed;
-			// double safe_dist = 40;
+			// double safe_dist = D  + T * car_speed;
+			double safe_dist = D;
 
 			// sensor fusion
 			const int nID = 0, nX = 1, nY = 2, nVX = 3, nVY = 4, nS = 5, nD = 6;
@@ -242,11 +243,11 @@ int main() {
 			int front_car_id = front_vehicles[car_lane];
 
 			if (front_car_id == -1 || front_distances[car_lane] > safe_dist) {
-				double dspeed = (a_max/2) * (T - t_prev) / 5; //a_max * (T ) / 2;
-				if (car_speed > 10){
-					dspeed = (a_max/2) * (T -t_prev);
-				}
-
+				// double dspeed = (a_max/2) * (T - t_prev) / 5; //a_max * (T ) / 2;
+				// if (car_speed > 10){
+				// 	dspeed = (a_max/2) * (T -t_prev);
+				// }
+				double dspeed = a_max * (T -t_prev) / 5 / (1 +  exp(-0.5*car_speed*car_speed));
 				// dspeed = (a_max/2) * (T - t_prev) / (1 + )
 				// cout << dspeed << endl;
 				ref_vel = min(v_max, ref_vel + dspeed);
@@ -260,26 +261,30 @@ int main() {
 				neighbor_car_s += prev_path_size * neighbor_speed * dt;
 
 
-				if ((neighbor_car_s > car_s) && ((neighbor_car_s - car_s) < safe_dist / 2) && car_speed > neighbor_speed) {
+				if ((neighbor_car_s > car_s) && ((neighbor_car_s - car_s) < safe_dist / 3) ) { //&& car_speed > neighbor_speed) {
 					cout << "emergency break" << endl;
-					ref_vel = max(0.95 * neighbor_speed, ref_vel * exp(-dampening * (safe_dist - closest_dist) / safe_dist));
+					//ref_vel = max(0.95 * neighbor_speed, ref_vel * exp(-dampening * (safe_dist - closest_dist) / safe_dist));
+					ref_vel -= a_max * (T - t_prev) / 10;
 				}
 				//else if ((neighbor_car_s > car_s) && ((neighbor_car_s - car_s) < safe_dist) && car_speed > neighbor_speed)
 				else if ((neighbor_car_s > car_s) && ((neighbor_car_s - car_s) < safe_dist))
 				{
 					cout << "match speed" << endl;
-					double dspeed = a_max * (T - t_prev) / 2;
-					double dv_ref = a_max * (T - t_prev);
-					dspeed = - 0.01 * (neighbor_speed - car_speed);
-					
-					if (abs(dspeed) > dv_ref) {
-						dspeed = dv_ref;
-					} 
-					else if (abs(dspeed / dt) < a_max / 5) {
-						dspeed = a_max * (T - t_prev) / 5;
-					}
-					ref_vel = max(neighbor_speed, ref_vel - dspeed); // max - so it slows down 
+					double dspeed = - a_max * (T - t_prev) / 5;
+					// double dv_ref = a_max * (T - t_prev);
+
+					// dspeed = 2 * (neighbor_speed - car_speed);
+					// if (abs(dspeed) > dv_ref) {
+					// 	dspeed = - dv_ref;
+					// } 
+					// else if (dspeed < dv_ref / 5) {
+					// 	dspeed = - dv_ref / 5;
+					// }
+					cout << "decelerate " << dspeed << endl;
+					//ref_vel = max(neighbor_speed, ref_vel + dspeed); // max - so it slows down 
+					ref_vel = max(0.1, ref_vel + dspeed); // max - so it slows down 
 				}
+
 
 				// if (car_speed > neighbor_speed) {
 				// 	//ref_vel = max(0.98 * neighbor_speed, ref_vel * exp(-dampening * (safe_dist - closest_dist) / safe_dist));
@@ -352,6 +357,20 @@ int main() {
 			{
 				//vector<double> wp = getXY(sd_init[0] + (id+1) * D, sd_init[1], map_waypoints_s, map_waypoints_x, map_waypoints_y);
 				//vector<double> wp = getXY(sd_init[0] + (id+1) * D, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+				// if (id == 0){
+				// 	pos_d = get_pose(prev_car_lane);
+				// }
+				// else if (id == 1) {
+				// 	pos_d = 0.5 * (get_pose(prev_car_lane) + get_pose(car_lane));
+				// }
+				// else {
+				// 	pos_d = get_pose(car_lane);
+				// }
+				// pos_d  = get_pose(prev_car_lane);
+				// if (id > 1) {
+				pos_d  = get_pose(car_lane);
+				// }			
+					//pos_d = (id == 0 ? get_pose(prev_car_lane) : get_pose(car_lane));
 				vector<double> wp = getXY(pos_s + (id+1) * D, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
 				anchor_x.push_back(wp[0]);
 				anchor_y.push_back(wp[1]);
