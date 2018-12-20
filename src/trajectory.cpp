@@ -73,3 +73,11 @@ vector<double> trajectory::operator() (vector<double> x) const
 
 	return interpolate;
 }
+
+
+void trajectory::create_trajectory(vector<double> x, vector<double>y, const double start_d, const double end_d)
+{
+	int start_lane = get_lane(start_d);
+	int end_lane = get_lane(end_d);
+	
+}

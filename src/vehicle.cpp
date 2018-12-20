@@ -84,11 +84,68 @@ vector< vector<double> > get_frenet_full_state(double x, double y, double angle,
 }
 
 
-Vehicle::Vehicle(const int lane, const double sampling_time)
+
+Vehicle::Vehicle(vector<double> S, vector<double> d)
+{
+	this->s_state = vector<double>(S);
+	this->d_state = vector<double>(d);
+	this->lane = get_lane(d[0]);
+	this->state = LANE_KEEP;
+}
+
+
+Vehicle::Vehicle(const int lane)//, const double sampling_time)
 {
 	this->lane = lane;
-	this->sampling_time = sampling_time;
+	// this->sampling_time = sampling_time;
+	this->s_state = vector<double>({0, 0, 0});
+	this->d_state = vector<double>({get_pose(lane), 0, 0});
+
 	this->state = LANE_KEEP;
+}
+
+Vehicle::Vehicle(const Vehicle &vehicle)
+{
+	this->s_state = vehicle.s_state;
+	this->d_state = vehicle.d_state;
+	this->state = vehicle.state;
+	this->lane = vehicle.lane;
+}
+
+void Vehicle::set_sdt(const double s, const double d, const double t)
+{
+	this->s_state[0] = s;
+	this->d_state[0] = d;
+	this->t = t;
+	this->lane = get_lane(d);
+}
+
+void Vehicle::set_neighbors(vector<Vehicle>& neighbors)
+{
+	this->neighbors = vector<Vehicle>(neighbors);
+	// for (int in = 0; in < this->neighbors.size(); in++) {
+	// 	this->neighbors[in].s_state[0] = this->neighbors[in].predict(this->t);
+	// }
+}
+
+
+void Vehicle::generate_trajectories()
+{
+	vector<int> candidates;
+	if (this->lane == 1) {
+		candidates = vector<int>({0, 1, 2});
+	}
+	else if (this->lane == 0) {
+		candidates = vector<int>({0, 1});
+	}
+	else { // 2
+		candidates = vector<int>({1, 2});
+	}
+}
+
+int Vehicle::select_lane()
+{
+
 }
 
 void Vehicle::set_location(double x, double y, double s, double d, double yaw, double speed, double acc)
@@ -99,6 +156,72 @@ void Vehicle::set_location(double x, double y, double s, double d, double yaw, d
 	// this->curr_loc.y = this->trajectory_y[last];
 
 }
+
+
+int Vehicle::get_leading(int target_lane)
+{
+	if (target_lane == -1) {
+		target_lane = this->lane;
+	}
+
+	double closest_dist = 1000;
+	int n_leading = -1;
+	double s_bias = 0;
+	for (int in = 0; in < neighbors.size(); in++)
+	{
+		// double front_dist = (neighbors[in].s_state[0] + neighbors[in].s_state[1] * this->sampling_time) - (this->s_state[0] + this->s_state[1] * this->sampling_time);
+
+		double front_dist = neighbors[in].predict(this->t) - this->s_state[0];
+		front_dist += s_bias;
+		if ((target_lane == neighbors[in].lane) && (front_dist > 0) && (front_dist < closest_dist))
+		{
+			// cout << in << " : lane " << neighbors[in].lane << ", s=" << neighbors[in].s_state[0] - this->s_state[0] << endl;
+			closest_dist = front_dist;
+			n_leading = in;
+		}
+	}
+	// cout << in << " : " << front_dist << endl;
+	// cout << "closest_dist[" << this->lane <<  "] = " << closest_dist << "@ " << n_leading << endl;
+	// if (this->front_vehicle) {
+	// 	cout << closest_dist << ", " << this->front_vehicle->s_state[0] << ", " << this->s_state[0] << endl;
+	// 	cout << "this->front_vehicle=" << this->front_vehicle << endl;
+	// }
+	return n_leading;
+}
+
+double Vehicle::predict(const double t)
+{
+	double pos_s = this->s_state[0];
+	double speed_s = this->s_state[1];
+	double acc_s = this->s_state[2];
+	return pos_s + speed_s * t + 0.5 * acc_s * t * t;
+}
+
+
+bool Vehicle::is_infront_of(Vehicle& car, double& dist)
+{
+	// s_state, d_state
+	// cout <<this->lane <<"," <<car.lane<<endl;
+	if (this->lane != car.lane) {
+		return false;
+	}
+	// cout << "this->s_state[0]" 
+	dist = this->s_state[0] - car.s_state[0];
+	return true;
+}
+
+// double Vehicle::get_leading_distance()
+// {
+// 	double dist = -1;
+// 	if (this->front_vehicle) {
+// 		dist = this->front_vehicle->s_state[0] - this->s_state[0];
+// 		cout << dist << ", " << this->front_vehicle->s_state[0] << ", " << this->s_state[0] << endl;
+// 		cout << "this->front_vehicle=" << this->front_vehicle << endl;
+// 	}
+// 	return dist;
+// }
+
+
 
 void Vehicle::set_map(const vector<double> &maps_x, const vector<double> &maps_y)
 {
@@ -118,22 +241,22 @@ void Vehicle::set_target(const double pos_x, const double pos_y, const double v_
 
 	// if (jmt_estimator_s.init)
 	// {
-	// 	s_init = this->jmt_estimator_s.eval(t_start);
-	// 	d_init = this->jmt_estimator_d.eval(t_start);
+	// 	s_state = this->jmt_estimator_s.eval(t_start);
+	// 	d_state = this->jmt_estimator_d.eval(t_start);
 	// }
 	// else
-	//if (d_init.empty())
+	//if (d_state.empty())
 	double a = (v_end - v_start) / dt;
 	if (!this->jmt_estimator_d.init)
 	{
 		vector<double> sd_target = getFrenet(pos_x, pos_y, angle, maps_x, maps_y);
-		d_init = vector<double>({get_pose(lane), 0, 0});
-		s_init = vector<double> ({sd_target[0], v_start, a});
+		d_state = vector<double>({get_pose(lane), 0, 0});
+		s_state = vector<double> ({sd_target[0], v_start, a});
 	}
 	else
 	{
-		d_init = this->jmt_estimator_d.eval(t_start);
-		s_init = this->jmt_estimator_s.eval(t_start);
+		d_state = this->jmt_estimator_d.eval(t_start);
+		s_state = this->jmt_estimator_s.eval(t_start);
 	}
 
 	// double x_target = pos_x + dt * v_end * cos(angle);
@@ -145,21 +268,21 @@ void Vehicle::set_target(const double pos_x, const double pos_y, const double v_
 	vector<double> d_final = vector<double>({get_pose(target_lane), 0, 0});
 	vector<double> s_final;
 	cout << "v_start = " << v_start << endl;
-	cout << "s_init +10 vs st_target " << s_init[0] << ", " << sd_target[0] << endl;
+	cout << "s_state +10 vs st_target " << s_state[0] << ", " << sd_target[0] << endl;
 	if (v_start < 10){
 		cout << "low" << endl;
-		s_final = vector<double> ({s_init[0] + 10, v_end, 0});
+		s_final = vector<double> ({s_state[0] + 10, v_end, 0});
 	}
 	else {
 		cout << "high" << endl;
 		s_final = vector<double> ({sd_target[0], v_end, 0});
 	}
 
-	this->jmt_estimator_s.set_points(s_init, s_final, t_end - t_start + 0.02);
-	this->jmt_estimator_d.set_points(d_init, d_final, t_end - t_start + 0.02);	
-	// cout << "d_init = [" << d_init[0] << " " << d_init[1] << " " << d_init[2] << "]" << endl;
+	this->jmt_estimator_s.set_points(s_state, s_final, t_end - t_start + 0.02);
+	this->jmt_estimator_d.set_points(d_state, d_final, t_end - t_start + 0.02);	
+	// cout << "d_state = [" << d_state[0] << " " << d_state[1] << " " << d_state[2] << "]" << endl;
 	// cout << "d_final = [" << d_final[0] << " " << d_final[1] << " " << d_final[2] << "]" << endl;
-	// cout << "s_init = [" << s_init[0] << " " << s_init[1] << " " << s_init[2] << "]" << endl;
+	// cout << "s_state = [" << s_state[0] << " " << s_state[1] << " " << s_state[2] << "]" << endl;
 	// cout << "s_final = [" << s_final[0] << " " << s_final[1] << " " << s_final[2] << "]" << endl;
 
 	// vector<double> s_full = car.jmt_estimator_s.eval(i * dt);
@@ -180,15 +303,15 @@ vector< vector<double> > Vehicle::get_init_target(const double x, const double y
 {
 	double x_target = x + T * v * cos(angle);
 	double y_target = y + T * v * sin(angle);
-	cout << "targets : " << x_target << "," << y_target << endl;
+	// cout << "targets : " << x_target << "," << y_target << endl;
 	
 	vector<double> sd_target = getFrenet(x_target, y_target, angle, maps_x, maps_y);
-	if (s_init.empty())
+	if (s_state.empty())
 	{
-		d_init = vector<double>({get_pose(target_lane), 0, 0});
-		s_init = vector<double> ({sd_target[0], v, 0});
+		d_state = vector<double>({get_pose(target_lane), 0, 0});
+		s_state = vector<double> ({sd_target[0], v, 0});
 	}
-	return vector< vector<double> >({s_init, d_init});	
+	return vector< vector<double> >({s_state, d_state});	
 }
 
 vector< vector<double> > Vehicle::get_target(const double x, const double y, const double angle, const double v, const double T, const int target_lane)
@@ -200,12 +323,12 @@ vector< vector<double> > Vehicle::get_target(const double x, const double y, con
 	
 	vector<double> sd_target = getFrenet(x_target, y_target, angle, maps_x, maps_y);
 	//if (!init_target)
-	if (s_init.empty())
+	if (s_state.empty())
 	{
-		d_init = vector<double>({get_pose(target_lane), 0, 0});
-		s_init = vector<double> ({sd_target[0], v, 0});
+		d_state = vector<double>({get_pose(target_lane), 0, 0});
+		s_state = vector<double> ({sd_target[0], v, 0});
 	}
-	return vector< vector<double> >({s_init, d_init});
+	return vector< vector<double> >({s_state, d_state});
 }
 
 vector< vector<double> > Vehicle::get_frenet() const
