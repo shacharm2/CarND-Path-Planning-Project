@@ -293,7 +293,7 @@ int main() {
 			//
 			int front_car_id = front_vehicles[car_lane];
 			if (front_car_id == -1 || front_distances[car_lane] > 2 * safe_dist) {
-				double dv = 5;
+				double dv = 2;
 				double a = dv/(T - t_prev);
 				while (a > 0.5 * a_max && dv > 0){
 					dv -= 0.01;
