@@ -158,7 +158,7 @@ void Vehicle::set_location(double x, double y, double s, double d, double yaw, d
 }
 
 
-int Vehicle::get_leading(int target_lane)
+int Vehicle::get_leading(int target_lane, double& distance)
 {
 	if (target_lane == -1) {
 		target_lane = this->lane;
@@ -186,6 +186,7 @@ int Vehicle::get_leading(int target_lane)
 	// 	cout << closest_dist << ", " << this->front_vehicle->s_state[0] << ", " << this->s_state[0] << endl;
 	// 	cout << "this->front_vehicle=" << this->front_vehicle << endl;
 	// }
+	distance = closest_dist;
 	return n_leading;
 }
 

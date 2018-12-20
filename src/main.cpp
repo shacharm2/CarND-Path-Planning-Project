@@ -236,7 +236,8 @@ int main() {
 				pos_d = end_path_d;
 			}
 
-			car.set_sdt(pos_s, pos_d, t_prev);
+			// initial location
+			car.set_sdt(car_s, car_d, 0);
 
 			/* temp hack */
 			int prev_car_lane = car_lane;
@@ -256,41 +257,27 @@ int main() {
 			vector<Vehicle> neighbors = generateNeighbors(sensor_fusion);
 			// car.neighbors = vector<Vehicle>(neighbors);
 			car.set_neighbors(neighbors);
-			
-			for (int i = 0; i < car.neighbors.size(); i++)
-			{
-				if (neighbors[i].lane != car.lane) {
-					continue;
-				}
-				cout << i << " " << car.neighbors[i].s_state[0] - pos_s << " " << car.neighbors[i].s_state[0] - car_s << endl;
-			// 	double vxn = sensor_fusion[0][nVX];
-			// 	double vyn = sensor_fusion[0][nVY];
-			// 	double ddd = (double)sensor_fusion[0][nS] + sqrt(pow(vxn, 2) + pow(vyn, 2)) * t_prev - car.neighbors[0].s_state[0];
-			// 	double xxx = car.s_state[0] - car_s;//(car_s + t_prev * car_speed);
-			// 	cout << i << " " << ddd << " " << xxx << endl;
-			// 	assert(ddd == 0);
-			}
-			// cout << endl;
 
 			for (int i_lane = 0; i_lane < 3; i_lane++)
 			{
 				double distance = 1000;
 				//int n_leading = getFrontVehicle(sensor_fusion, i_lane, car_s, car_speed, t_prev, distance);
-				int front_curr_vehicle = getFrontVehicle(sensor_fusion, i_lane, pos_s, car_speed, t_prev, distance);
+				// int front_curr_vehicle = getFrontVehicle(sensor_fusion, i_lane, pos_s, car_speed, t_prev, distance);
 
 				//cout << "leading @ " <<  i_lane << " : " << n_leading << " @ " << distance << endl;
-				// int front_curr_vehicle = car.get_leading(i_lane);
+				int front_curr_vehicle = car.get_leading(i_lane, distance);
 				front_vehicles.push_back(front_curr_vehicle);
-				if (front_curr_vehicle != -1) {
-					 //distance = neighbors[front_curr_vehicle].s_state[0] + dt * neighbors[front_curr_vehicle].s_state[1] - car_s; //car.s_state[0];
-					 distance = neighbors[front_curr_vehicle].predict(t_prev) - pos_s; //car.s_state[0];
-				}
+				// if (front_curr_vehicle != -1) {
+				// 	 //distance = neighbors[front_curr_vehicle].s_state[0] + dt * neighbors[front_curr_vehicle].s_state[1] - car_s; //car.s_state[0];
+				// 	 distance = neighbors[front_curr_vehicle] - car_s; //car.s_state[0];
+				// }
 				front_distances.push_back(distance);
 				// assert(n_leading == front_curr_vehicle);
 			}
 			cout << "front_distances[" << car_lane << "]=" << front_distances[car_lane] << " with id " << front_vehicles[car_lane] << endl ;
 
-			int n_leading = car.get_leading();
+			double leading_distance;
+			int n_leading = car.get_leading(-1, leading_distance);
 			// cout << "front_distance " << neighbors[n_leading].predict(t_prev) - car.s_state[0] << " with id " << n_leading << endl;
 
 			//cout << "car.get_leading_distance() @ lane " << car.lane << "=" << car.get_leading_distance()  << " with id " << n_leading << endl ;

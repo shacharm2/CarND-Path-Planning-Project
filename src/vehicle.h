@@ -46,7 +46,7 @@ public:
 
 	~Vehicle() {}
 
-	int get_leading(int target_lane = -1);
+	int get_leading(int target_lane, double& distance);
 	double predict(const double t);
 	void set_sdt(const double s, const double d, const double t);
 	void generate_trajectories();
