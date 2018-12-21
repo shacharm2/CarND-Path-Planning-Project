@@ -14,19 +14,22 @@
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
 #include "spline.h"
-// #include "Eigen/Dense"
+#include "JMT.h"
+// #include "trajectory.h"
+#include "vehicle.h"
+#include "utils.h"
 
 using namespace std;
 
-// using Eigen::MatrixXd;
-// using Eigen::VectorXd;
+using Eigen::MatrixXd;
+using Eigen::VectorXd;
 // using std::vector;
 
 // for convenience
 using json = nlohmann::json;
 
 // For converting back and forth between radians and degrees.
-constexpr double pi() { return M_PI; }
+// constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
 
@@ -45,134 +48,93 @@ string hasData(string s) {
   return "";
 }
 
-double distance(double x1, double y1, double x2, double y2)
-{
-	return sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
-}
-int ClosestWaypoint(double x, double y, const vector<double> &maps_x, const vector<double> &maps_y)
-{
 
-	double closestLen = 100000; //large number
-	int closestWaypoint = 0;
-
-	for(int i = 0; i < maps_x.size(); i++)
+int argmin(vector<double> costs)
+{
+	double min_cost = 1e99;
+	int id = -1;
+	for (int iv = 0; iv < costs.size(); iv++)
 	{
-		double map_x = maps_x[i];
-		double map_y = maps_y[i];
-		double dist = distance(x,y,map_x,map_y);
-		if(dist < closestLen)
+		if (costs[iv] < min_cost)
 		{
-			closestLen = dist;
-			closestWaypoint = i;
+			min_cost = costs[iv];
+			id = iv;
 		}
-
 	}
+	return id;
+}
+/*
+double calc_velocity(double dv, a_max
+				//double dv = -5;
+				double a = abs(dv/(T - t_prev));
+				while (a > 0.5 * a_max && dv < 0){
+					dv += 0.01;
+					a = abs(dv/(T - t_prev));
+				}
+				ref_vel += dv;
+				ref_vel = max(neighbor_speed, ref_vel);
+*/
 
-	return closestWaypoint;
+float inefficiency_cost(int target_speed, int intended_lane, int final_lane, vector<int> lane_speeds) {
+    /*
+    Cost becomes higher for trajectories with intended lane and final lane that have traffic slower than target_speed.
+    */
+    
+    //TODO: Replace cost = 0 with an appropriate cost function.
+    float cost = 1 - exp(-(2 * target_speed - (float)lane_speeds[intended_lane] - (float)lane_speeds[final_lane]) / target_speed);
 
+    return cost;
 }
 
-int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y)
+
+vector<Vehicle> generateNeighbors(vector<vector<double>> sensor_fusion)
 {
-
-	int closestWaypoint = ClosestWaypoint(x,y,maps_x,maps_y);
-
-	double map_x = maps_x[closestWaypoint];
-	double map_y = maps_y[closestWaypoint];
-
-	double heading = atan2((map_y-y),(map_x-x));
-
-	double angle = fabs(theta-heading);
-  angle = min(2*pi() - angle, angle);
-
-  if(angle > pi()/4)
-  {
-    closestWaypoint++;
-  if (closestWaypoint == maps_x.size())
-  {
-    closestWaypoint = 0;
-  }
-  }
-
-  return closestWaypoint;
+	vector<Vehicle> neighbors;
+	const int nID = 0, nX = 1, nY = 2, nVX = 3, nVY = 4, nS = 5, nD = 6;
+	for (int i = 0; i < sensor_fusion.size(); i++)
+	{
+		// assumptions
+		// vehicle is moving straight on S, no acceleration
+		// d velocity mean is zero, such that d_dot[0] is ignore
+		double neighbor_speed = sqrt(pow(sensor_fusion[i][nVX], 2) + pow(sensor_fusion[i][nVY], 2));		
+		vector<double> S({sensor_fusion[i][nS], neighbor_speed, 0});
+		vector<double> d({sensor_fusion[i][nD], 0, 0});
+		neighbors.push_back(Vehicle(S, d));
+	}
+	return neighbors;
 }
 
-// Transform from Cartesian x,y coordinates to Frenet s,d coordinates
-vector<double> getFrenet(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y)
+int getFrontVehicle(vector<vector<double>> sensor_fusion, int target_lane, double car_s, double car_speed, double t_bias, double& dist)
 {
-	int next_wp = NextWaypoint(x,y, theta, maps_x,maps_y);
-
-	int prev_wp;
-	prev_wp = next_wp-1;
-	if(next_wp == 0)
+	const int nID = 0, nX = 1, nY = 2, nVX = 3, nVY = 4, nS = 5, nD = 6;
+	double closest_dist = 1000;
+	int front_vehicle = -1;
+	for (int i = 0; i < sensor_fusion.size(); i++)
 	{
-		prev_wp  = maps_x.size()-1;
+		double neighbor_s = sensor_fusion[i][nS];
+		double neighbor_d = sensor_fusion[i][nD];
+		
+		double vx_n = sensor_fusion[i][nVX];
+		double vy_n = sensor_fusion[i][nVY];
+		double neighbor_speed = sqrt(pow(vx_n, 2) + pow(vy_n, 2));
+
+		int neighbor_lane = get_lane(sensor_fusion[i][nD]);
+		// double dist = neighbor_s + (dt + t_prev) * neighbor_speed - car_s;
+		//double front_dist = neighbor_s + t_bias * neighbor_speed - car_s;
+		//double front_dist = neighbor_s + t_bias * neighbor_speed - car_s - t_bias * car_speed;
+		double front_dist = neighbor_s + t_bias * neighbor_speed - car_s;
+		if ((neighbor_lane == target_lane) && (front_dist > 0) && (front_dist < closest_dist))
+		{
+			closest_dist = front_dist;
+			front_vehicle = i;
+		}
 	}
-
-	double n_x = maps_x[next_wp]-maps_x[prev_wp];
-	double n_y = maps_y[next_wp]-maps_y[prev_wp];
-	double x_x = x - maps_x[prev_wp];
-	double x_y = y - maps_y[prev_wp];
-
-	// find the projection of x onto n
-	double proj_norm = (x_x*n_x+x_y*n_y)/(n_x*n_x+n_y*n_y);
-	double proj_x = proj_norm*n_x;
-	double proj_y = proj_norm*n_y;
-
-	double frenet_d = distance(x_x,x_y,proj_x,proj_y);
-
-	//see if d value is positive or negative by comparing it to a center point
-
-	double center_x = 1000-maps_x[prev_wp];
-	double center_y = 2000-maps_y[prev_wp];
-	double centerToPos = distance(center_x,center_y,x_x,x_y);
-	double centerToRef = distance(center_x,center_y,proj_x,proj_y);
-
-	if(centerToPos <= centerToRef)
-	{
-		frenet_d *= -1;
-	}
-
-	// calculate s value
-	double frenet_s = 0;
-	for(int i = 0; i < prev_wp; i++)
-	{
-		frenet_s += distance(maps_x[i],maps_y[i],maps_x[i+1],maps_y[i+1]);
-	}
-
-	frenet_s += distance(0,0,proj_x,proj_y);
-
-	return {frenet_s,frenet_d};
-
+	dist = closest_dist;
+	// cout << "closest_dist = " << dist << endl;
+	return front_vehicle;
 }
 
-// Transform from Frenet s,d coordinates to Cartesian x,y
-vector<double> getXY(double s, double d, const vector<double> &maps_s, const vector<double> &maps_x, const vector<double> &maps_y)
-{
-	int prev_wp = -1;
 
-	while(s > maps_s[prev_wp+1] && (prev_wp < (int)(maps_s.size()-1) ))
-	{
-		prev_wp++;
-	}
-
-	int wp2 = (prev_wp+1)%maps_x.size();
-
-	double heading = atan2((maps_y[wp2]-maps_y[prev_wp]),(maps_x[wp2]-maps_x[prev_wp]));
-	// the x,y,s along the segment
-	double seg_s = (s-maps_s[prev_wp]);
-
-	double seg_x = maps_x[prev_wp]+seg_s*cos(heading);
-	double seg_y = maps_y[prev_wp]+seg_s*sin(heading);
-
-	double perp_heading = heading-pi()/2;
-
-	double x = seg_x + d*cos(perp_heading);
-	double y = seg_y + d*sin(perp_heading);
-
-	return {x,y};
-
-}
 
 int main() {
   uWS::Hub h;
@@ -211,7 +173,15 @@ int main() {
   	map_waypoints_dx.push_back(d_x);
   	map_waypoints_dy.push_back(d_y);
   }
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+
+  int target_lane = 1;
+  double ref_vel = 0;
+  Vehicle car(target_lane);
+  string method = "JMT";
+//   string method = "spline";
+  
+
+  h.onMessage([&car, &map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &target_lane, &ref_vel](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -245,122 +215,341 @@ int main() {
           	double end_path_s = j[1]["end_path_s"];
           	double end_path_d = j[1]["end_path_d"];
 
-			// vector<double> xy = getXY(end_path_s, end_path_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-			// vector<double> sd = getFrenet(car_x, car_y, car_yaw, map_waypoints_x, map_waypoints_y);
-
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
           	json msgJson;
+			vector<double> next_x_vals, next_y_vals;
 
-          	vector<double> next_x_vals;
-          	vector<double> next_y_vals;
+			/*
+				set parameters	
+			*/
+			double T = 1; // [sec]
+			double dt = T / 50;  // [sec] cycle time, step time
+			double v_max = 21.5; // m/sec ~ 48 mph 
+			double D = 30; // [m]
+			double a_max = 10; // m/s^2
+			double max_jerk = 10; // m/s^3
+			double prev_pos_x, prev_pos_y, pos_x = car_x, pos_y = car_y, pos_s = car_s, pos_d = car_d, angle = deg2rad(car_yaw);
+			// double safe_dist = D / 2;
 
-          	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-			double T = 1, dt = 0.02;  // [sec] cycle time, step time
-			double ref_vel = 48;
-			double prev_pos_x, prev_pos_y, pos_x = car_x, pos_y = car_y, pos_s = car_s, angle = deg2rad(car_yaw);
-			vector<double> anchor_x, anchor_y;
+			car_speed /= 2.24;
+			double safe_dist = D;//+ T * car_speed;
 
-			int path_size = previous_path_x.size();
-			for(int i = 0; i < path_size; i++)
+			int prev_path_size = previous_path_x.size();
+			double t_prev = dt * prev_path_size;
+
+			// initial location
+			car.set_sdt(car_s, car_d, 0);
+			// int prev_car_lane = car.lane;
+
+			/* temp hack */
+			// if (car_speed > 20)	{
+			// 	target_lane = 0;
+			// }
+			/* temp hack */
+
+			// sensor fusion
+			const int nID = 0, nX = 1, nY = 2, nVX = 3, nVY = 4, nS = 5, nD = 6;
+			double dampening = 0.5;
+			double closest_dist = 1e99;
+			double closest_neighbor = -1;
+		
+			vector<int> front_vehicles;
+			vector<double> front_distances;
+			vector<Vehicle> neighbors = generateNeighbors(sensor_fusion);
+			// car.neighbors = vector<Vehicle>(neighbors);
+			car.set_neighbors(neighbors);
+			for (int i_lane = 0; i_lane < 3; i_lane++)
+			{
+				double distance = 10000;
+				int front_curr_vehicle = car.get_leading(i_lane, distance);
+				front_vehicles.push_back(front_curr_vehicle);
+				front_distances.push_back(distance);
+				// assert(n_leading == front_curr_vehicle);
+			}
+			cout << "front_distances[" << car.lane << "]=" << front_distances[car.lane] << " with id " << front_vehicles[car.lane] << endl ;
+
+
+			double velocity = car_speed;
+			if(prev_path_size < 2)
+			{
+				prev_pos_x = pos_x - cos(angle);
+				prev_pos_y = pos_y - sin(angle);
+			}
+			else
+			{
+				pos_x = previous_path_x[prev_path_size-1];
+				pos_y = previous_path_y[prev_path_size-1];
+
+				prev_pos_x = previous_path_x[prev_path_size-2];
+				prev_pos_y = previous_path_y[prev_path_size-2];
+
+				angle = atan2(pos_y-prev_pos_y, pos_x-prev_pos_x);
+				velocity = sqrt(pow((pos_x - prev_pos_x) / dt, 2) + pow((pos_y - prev_pos_y) / dt, 2));
+			}
+			
+			vector<double> sd_init = getFrenet(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
+
+
+
+			int front_car_id = front_vehicles[car.lane];
+			double frac = 1. / (1 + exp(-car_speed));
+			if (front_car_id == -1 || front_distances[car.lane] > 1.2 * safe_dist) {
+				cout << "accelerate" << endl;
+	
+				double target_vel = v_max;
+				if (front_car_id != -1) {
+					double xinterp = (safe_dist / front_distances[car.lane]);
+					double neighbor_speed = neighbors[front_car_id].s_state[1];
+					target_vel = v_max * (1-xinterp) + neighbor_speed * xinterp;
+				}
+				double dv = 2;
+				double a = dv/(T - t_prev);
+				while (a > frac * a_max && dv > 0){
+					dv -= 0.01;
+					a = dv/(T - t_prev);
+				}
+				ref_vel += dv;
+				ref_vel = min(target_vel, ref_vel);
+			}
+			else if (front_distances[car.lane] > safe_dist) {
+
+				cout << "match speed" << endl;
+				double neighbor_speed = neighbors[front_car_id].s_state[1];
+				if (neighbor_speed > ref_vel)
+				{
+					double dv = neighbor_speed - ref_vel;
+					double dvs = (dv < 0 ? -1 : 1);
+					double a = abs(dv/(T - t_prev));
+					while (a > frac * a_max && dv != 0){
+						dv = dvs * (abs(dv) - 0.05);
+						a = abs(dv/(T - t_prev));
+					}
+					ref_vel += dv;
+					ref_vel = min(v_max, ref_vel);
+				}
+			}			
+			else if (front_distances[car.lane] < safe_dist) {
+				double neighbor_speed = neighbors[front_car_id].s_state[1];
+
+				double dv = -5;
+				double a = abs(dv/(T - t_prev));
+				while (a > 0.5 * a_max && dv < 0){
+					dv += 0.01;
+					a = abs(dv/(T - t_prev));
+				}
+				ref_vel += dv;
+				ref_vel = max(neighbor_speed, ref_vel);
+				cout << "decelerate = " << dv << endl;
+			}
+
+			// generate trajectories
+
+			for(int i = 0; i < prev_path_size; i++)
 			{
 				next_x_vals.push_back(previous_path_x[i]);
 				next_y_vals.push_back(previous_path_y[i]);
 			}
-			//double vs = (car_speed == 0 ? 1:car_speed);
 
-			if(path_size < 2)
-			{
-				// pos_x = car_x;// pos_y = car_y;// pos_s = car_s;// angle = car_yaw;
-				prev_pos_x = pos_x - dt * ref_vel * cos(car_yaw);
-				prev_pos_y = pos_y - dt * ref_vel * sin(car_yaw);
+			if (prev_path_size > 0) {
+				pos_s = end_path_s;
+				pos_d = end_path_d;
 			}
-			else
-			{
-				pos_x = previous_path_x[path_size-1];
-				pos_y = previous_path_y[path_size-1];
 
-				prev_pos_x = previous_path_x[path_size-2];
-				prev_pos_y = previous_path_y[path_size-2];
-				angle = atan2(pos_y-prev_pos_y, pos_x-prev_pos_x);
-				vector<double> sd = getFrenet(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
-				pos_s = sd[0];
+			// initial location
+			car.set_sdt(pos_s, pos_d, t_prev);
+			// int prev_car_lane = car_lane;
+			if (car_speed > 10)//true)//front_car_id != -1)
+			{
+				vector<bool> free_lane({true, true, true});
+				vector<double> costs({0,0,0});
+
+				double ref_dist = 10000;
+				int curr_leading_car = car.get_leading(car.lane, ref_dist);
+				if (curr_leading_car == -1) {
+					ref_dist = safe_dist;
+				}
+
+				for (int i_lane = 0; i_lane < 3; i_lane++)
+				{
+					double lane_leading_distance = 10000, lane_trailing_distance = 10000;
+					car.get_leading(i_lane, lane_leading_distance);
+					car.get_trailing(i_lane, lane_trailing_distance);
+					cout << "leading/trailing distance[" << i_lane << "] = " << lane_leading_distance << "," << lane_trailing_distance << endl;
+				}
+
+				double fwd_dist_weight = 1;
+				double change_lane_weight = 0.5;
+				double leading_safety_weight = 10;
+				double trailing_safety_weight = 100;
+				for (int i_lane = 0; i_lane < 3; i_lane++)
+				{
+					// retrieve data
+					vector<double> dists = car.get_distances(i_lane);
+					double lane_leading_distance = 10000, lane_trailing_distance = -10000;
+					int leading = car.get_leading(i_lane, lane_leading_distance);
+					int trailing = car.get_trailing(i_lane, lane_trailing_distance);
+					assert(lane_trailing_distance < 0);
+					assert(lane_leading_distance > 0);
+
+					// calculate costs
+					double fwd_dist_cost = exp(1 - lane_leading_distance / ref_dist); // passes 1 for small distance
+					double change_lane_cost = pow(car.lane - i_lane, 2);
+					double leading_safety_cost = 0;
+					if (leading != -1)
+					{
+						if (lane_leading_distance < safe_dist && lane_leading_distance >= 0) {
+							leading_safety_cost = 1;
+						}
+					}
+
+					double trailing_safety_cost = 0;
+					if (trailing != -1)
+					{
+						double trailing_vel = car.neighbors[trailing].s_state[1];
+						if (abs(lane_trailing_distance) < safe_dist / 3 && i_lane != car.lane) { 
+							trailing_safety_cost = 1;
+						}
+						else if (-lane_trailing_distance < safe_dist && i_lane != car.lane && trailing_vel >= ref_vel) {
+							trailing_safety_cost = 1;
+						}
+					}					
+
+					// sum costs
+					//costs[i_lane] += 1 / (1 + exp(- pow(get_pose(i_lane) - pos_d, 2)));
+					costs[i_lane] += fwd_dist_weight * fwd_dist_cost;
+					costs[i_lane] += change_lane_weight * change_lane_cost;
+					costs[i_lane] += leading_safety_weight * leading_safety_cost;
+					costs[i_lane] += trailing_safety_weight * trailing_safety_cost;
+					
+
+					if (abs(lane_trailing_distance) < safe_dist / 2 && i_lane != car.lane) {
+						costs[i_lane] = 1000;
+					}
+					// set no-gos
+					/*
+					if (lane_leading_distance < safe_dist || (abs(lane_trailing_distance) < safe_dist && i_lane != car.lane))
+					{
+						costs[i_lane] = 10;
+						free_lane[i_lane] = false;
+					}*/
+					
+					/*
+					for (int id = 0; id < dists.size(); id++)
+					{
+						if ((dists[id] > 0 & dists[id] < safe_dist))// || (dists[id] < 0 & dists[id] > -D & i_lane != car.lane))
+						{
+							costs[i_lane] = 10;
+							free_lane[i_lane] = false;
+						}
+					}*/
+					
+						
+					cout << "costs[" << i_lane << "] = " << costs[i_lane] << " | " << "fd = " << front_distances[i_lane] << " | fwd cost =" << fwd_dist_cost << endl;
+					
+				}
+				cout << endl;
+
+				assert(costs[car.lane] < 20);
+				int min_cost_lane = argmin(costs);
+				/*if (abs(min_cost_lane - car.lane) > 1 && free_lane[1]) {
+					car.lane = 1;
+				}*/
+				if (car.lane == 1)// && (costs[0] < costs[1] || costs[2] < costs[1])) 
+				{
+					target_lane = min_cost_lane;
+					cout << "1 -> " << car.lane << endl;
+				}
+
+				else if ((car.lane == 0 && costs[0] > costs[1]) || (car.lane == 2 && costs[1] < costs[2]))
+				{
+					cout << car.lane << " -> 1" << endl;
+
+					target_lane = 1;
+				}
+
 			}
+			car.d_state[0] = get_pose(car.lane);
+			pos_d = car.d_state[0];
+
+
+			// trajectory_planner
+			trajectory trajectory_planner("spline");
 
 			// previous anchors
+			vector<double> anchor_x, anchor_y;
 			anchor_x.push_back(prev_pos_x);
 			anchor_y.push_back(prev_pos_y);
 
 			anchor_x.push_back(pos_x);
 			anchor_y.push_back(pos_y);
+			// trajectory_planner.create_trajectory(vector<double> x, vector<double>y, const double start_d, const double end_d)
 
 			// next anchors
-			double D = 30; // [m] //car_speed * T;
-			int lane = 1;
-			double pos_d = 2 + 4 * lane;
-			//pos_d = 2 + 4*lane
-			// int lane = (int)((pos_d - 2) / 4);
-
-			// cout <<"D="<<D<<endl;
 			for (int id = 0; id < 3; id++)
 			{
-				cout << "pos_s + (" << (id+1) << ") * D = " << pos_s + (id+1) * D << endl;
-				vector<double> wp = getXY(pos_s + (id+1) * D, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+				//vector<double> wp = getXY(sd_init[0] + (id+1) * D, sd_init[1], map_waypoints_s, map_waypoints_x, map_waypoints_y);
+				//vector<double> wp = getXY(sd_init[0] + (id+1) * D, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+				/*if (id == 0){
+					pos_d = get_pose(car.lane);
+				}
+				else if (id == 1) {
+					pos_d = 0.5 * (get_pose(car.lane) + get_pose(target_lane));
+				}
+				else {
+					pos_d = get_pose(target_lane);
+				}*/
+				pos_d = get_pose(target_lane);
+				vector<double> wp = getXY(pos_s + (id+1) * D * 1.5, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
 				anchor_x.push_back(wp[0]);
 				anchor_y.push_back(wp[1]);
 			}
 
 			// transform to car coordiantes
-			// cout << "anchor_x.size()=" <<anchor_x.size()<<endl;
-			// cout << "anchor_y.size()=" <<anchor_y.size()<<endl;
-			cout << "anchors" << endl;
 			for (int ia = 0; ia < anchor_x.size(); ia++)
 			{
 				double _x = anchor_x[ia] - pos_x, _y = anchor_y[ia] - pos_y;
 				anchor_x[ia] = _x * cos(angle) + _y * sin(angle);
 				anchor_y[ia] = _y * cos(angle) - _x * sin(angle);
-				cout << anchor_x[ia] << "," << anchor_y[ia] << endl;
 			}
-			cout << endl;
+
 
 			// create a spline
-			tk::spline spline_estimator;
-
-			spline_estimator.set_points(anchor_x, anchor_y);
-
-			double target_x = D, target_y = spline_estimator(D);
-			double distance = sqrt(pow(target_x, 2) + pow(target_y, 2));
+			trajectory estimator("spline");	// tk::spline spline_estimator;
 			
-			// vs = car_speed;
-			// if (car_speed == 0)
-			// {
-			// 	vs = 49.5;
-			// }
-			int N = (int)(distance / (dt * ref_vel / 2.24));
 
-			cout << "N=" << N << endl;
-			cout << "distance=" << distance << endl;
-			// cout << "vs=" << vs << endl;
-			cout << "dt=" << dt << endl;
+			// spline_estimator.set_points(anchor_x, anchor_y);
+			estimator.set_points(anchor_x, anchor_y);
+			// start_s, start_d
+			//pos_x, pos_y, angle
+			D = pos_x + car_speed * (T - t_prev) +  0.5 * a_max * pow(T - t_prev, 2);
 
+			double target_x = D, target_y = estimator(D); //spline_estimator(D);
+			double distance = sqrt(pow(target_x, 2) + pow(target_y, 2));
+			int N = (int)(distance / (dt * ref_vel)); // /2.24
+			// D^2 + spline_estimator(D) ^ 2 = distance
 
 			double next_d = 6, next_s = pos_s;
 			double dist_inc = 0.5;
-			double x_prev = -1, y_prev = -1;
-			for(int i = 0; i < 50-path_size; i++)
+			vector<double> X, Y;
+			double vx, vy;
+
+			for(int i = 0; i < 50-prev_path_size; i++)
 			{    
 				if (false)
 				{
+					/*
 					next_s = pos_s + (i+1) * dist_inc;
 					vector<double> xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
 					next_x_vals.push_back(xy[0]);
 					next_y_vals.push_back(xy[1]);
+					*/
 				}
-				else
+				else if (true)
 				{
 					double xc = (i+1) * target_x / N;
-					double yc = spline_estimator(xc);
+					double yc = estimator(xc); //spline_estimator(xc);
 					// cout << "xc,yc=" << xc << "," << yc << endl;
 
 					double x = xc * cos(angle) - yc * sin(angle) + pos_x;
@@ -368,25 +557,39 @@ int main() {
 					// vector<double> xy = getXY(xf_s, yf_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
 					next_x_vals.push_back(x);
 					next_y_vals.push_back(y);
-
-					if (x_prev == -1) {
-						cout << "i, pos_x,pos_y, xc,yc, x,y=" << i << ", " << pos_x << " " << pos_y << ", " << xc << " " << yc << ", " << x << " " << y << endl;
+					// car.add(x, y);
+					X.push_back(x);
+					Y.push_back(y);
+					if (X.size() > 3)
+					{
+						X.erase(X.begin());
+						Y.erase(Y.begin());
+						double ax = (X[0] - 2 * X[1] + X[2]) / (dt * dt);
+						double ay = (Y[0] - 2 * Y[1] + Y[2]) / (dt * dt);
 					}
-					else {
-						double vx = (x - x_prev) / dt, vy = (y - y_prev) / dt;
-						cout << "i, pos_x,pos_y, xc,yc, x,y, vx, vy=" << i << ", " << pos_x << " " << pos_y << ", " << xc << " " << yc << ", " << x << " " << y << "," << vx << " " << vy << endl;
-					}
-					x_prev = x;
-					y_prev = y;
-
 				}
-			}
+				else
+				{
+					// cout << "est"<<endl;
+					vector<double> s_full = car.jmt_estimator_s.eval(i * dt);
+					vector<double> d_full = car.jmt_estimator_d.eval(i * dt);
+					// will set them for next round
+					// car.s_init = s_full;
+					// car.d_init = d_full;
+					cout << s_full[0] << ",";
 
-			for (int i = 0; i < next_x_vals.size(); i++) {
-				cout << next_x_vals[i] << " ";
+					//vector<double> wp = getXY(sd_init[0] + (id+1) * D, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+					//jmt_estimator_s.set_points(sd_targets_init[0], sd_targets_final[0]);
+					//jmt_estimator_d.set_points(sd_targets_init[1], sd_targets_final[1]);
+					// cout << "dfull = [" << d_full[0] << " " << d_full[1] << " " << d_full[2] << "]" << endl;
+					vector<double> xy = getXY(s_full[0], d_full[0], map_waypoints_s, map_waypoints_x, map_waypoints_y);
+					
+					// cout << "next s/d, x/y :" << s_full[0] << "/" << d_full[0] << " | " << xy[0] << "/" << xy[1] << endl;
+					next_x_vals.push_back(xy[0]);
+					next_y_vals.push_back(xy[1]);
+				}
+
 			}
-			cout << endl;
-			cout << "---------------------------------------------------------------" << endl;
 
 
           	msgJson["next_x"] = next_x_vals;
