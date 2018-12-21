@@ -1,43 +1,6 @@
 #include "vehicle.h"
 
 
-// vector< vector<double> > get_frenet_full_state(double x, double y, double angle, double speed, double acc, double sampling_time, const vector<double> &maps_x, const vector<double> &maps_y)
-// {
-// 	double vx = speed * cos(angle);
-// 	double vy = speed * sin(angle);
-// 	double ax = acc * cos(angle);
-// 	double ay = acc * sin(angle);
-// 	cout << "get_frenet_full_state inputs" << endl;
-// 	cout << x << "," << y << "," << speed << "," << acc << "," << angle << endl;
-// 	cout << "vx,vy,ax,ax=" << vx << "," << vy << "," << ax << "," << ay << endl;	
-// 	vector<double> s, d;
-// 	for (int i = 0; i < 3; i++)
-// 	{
-// 		double dt = i * sampling_time;
-// 		double _x = x - vx * dt - 0.5 * ax * dt * dt;
-// 		double _y = y - vy * dt - 0.5 * ay * dt * dt;
-// 		vector<double> sd = getFrenet(_x, _y, angle, maps_x, maps_y);
-// 		s.push_back(sd[0]);
-// 		d.push_back(sd[1]);
-// 	}
-
-// 	vector<double> s_full, d_full;
-// 	// calc s, s_dt, s_dt2, d, d_dt, d_dt2
-// 	s_full.push_back(s[0]);
-// 	s_full.push_back((s[0] - s[1]) / sampling_time);
-// 	s_full.push_back((s[0] - 2 * s[1] + s[2]) / pow(sampling_time, 2));
-// 	cout << "s_full = [" << s_full[0] << "," << s_full[1] << "," << s_full[2] << "]" << endl;
-	
-// 	d_full.push_back(d[0]);
-// 	d_full.push_back((d[0] - d[1]) / sampling_time);
-// 	d_full.push_back((d[0] - 2 * d[1] + d[2]) / pow(sampling_time, 2));
-// 	cout << "d_full = [" << d_full[0] << "," << d_full[1] << "," << d_full[2] << "]" << endl<< endl;
-	
-
-// 	vector< vector<double> > output = {s_full, d_full};
-// 	return output;
-// }
-
 vector< vector<double> > get_frenet_full_state(double x, double y, double angle, double speed, double acc, double sampling_time, const vector<double> &maps_x, const vector<double> &maps_y)
 {
 	double vx = speed * cos(angle);
@@ -123,11 +86,22 @@ void Vehicle::set_sdt(const double s, const double d, const double t)
 void Vehicle::set_neighbors(vector<Vehicle>& neighbors)
 {
 	this->neighbors = vector<Vehicle>(neighbors);
-	// for (int in = 0; in < this->neighbors.size(); in++) {
-	// 	this->neighbors[in].s_state[0] = this->neighbors[in].predict(this->t);
-	// }
 }
 
+vector<double> Vehicle::get_distances(int lane)
+{
+	vector<double> dists;
+	for (int in = 0; in < this->neighbors.size(); in++)
+	{
+		if (this->neighbors[in].lane != lane) {
+			continue;
+		}
+		dists.push_back(this->neighbors[in].predict(this->t) - this->predict(this->t));
+		// cout << "(" << in << ", " << this->neighbors[in].predict(this->t) - this->predict(this->t) << ") ";
+	}
+	// cout << endl;
+	return dists;
+}
 
 void Vehicle::generate_trajectories()
 {
@@ -166,13 +140,12 @@ int Vehicle::get_leading(int target_lane, double& distance)
 
 	double closest_dist = 1000;
 	int n_leading = -1;
-	double s_bias = 0;
+	
 	for (int in = 0; in < neighbors.size(); in++)
 	{
 		// double front_dist = (neighbors[in].s_state[0] + neighbors[in].s_state[1] * this->sampling_time) - (this->s_state[0] + this->s_state[1] * this->sampling_time);
 
-		double front_dist = neighbors[in].predict(this->t) - this->s_state[0];
-		front_dist += s_bias;
+		double front_dist = neighbors[in].predict(this->t + 0.02) - this->s_state[0];
 		if ((target_lane == neighbors[in].lane) && (front_dist > 0) && (front_dist < closest_dist))
 		{
 			// cout << in << " : lane " << neighbors[in].lane << ", s=" << neighbors[in].s_state[0] - this->s_state[0] << endl;
@@ -189,6 +162,30 @@ int Vehicle::get_leading(int target_lane, double& distance)
 	distance = closest_dist;
 	return n_leading;
 }
+
+int Vehicle::get_trailing(int target_lane, double& distance)
+{
+	if (target_lane == -1) {
+		target_lane = this->lane;
+	}
+
+	double closest_dist = 1000;
+	int n_traling = -1;
+	
+	for (int in = 0; in < neighbors.size(); in++)
+	{
+		double back_dist = this->s_state[0] - neighbors[in].predict(this->t + 0.02);
+		if ((target_lane == neighbors[in].lane) && (back_dist >= 0) && (back_dist < closest_dist))
+		{
+			// cout << in << " : lane " << neighbors[in].lane << ", s=" << neighbors[in].s_state[0] - this->s_state[0] << endl;
+			closest_dist = back_dist;
+			n_traling = in;
+		}
+	}
+	distance = -closest_dist;
+	return n_traling;
+}
+
 
 double Vehicle::predict(const double t)
 {

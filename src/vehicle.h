@@ -47,11 +47,13 @@ public:
 	~Vehicle() {}
 
 	int get_leading(int target_lane, double& distance);
+	int get_trailing(int target_lane, double& distance);
 	double predict(const double t);
 	void set_sdt(const double s, const double d, const double t);
 	void generate_trajectories();
 	vector<Vehicle> neighbors;
 	int select_lane();
+	vector<double> get_distances(int lane);
 
 	bool is_infront_of(Vehicle& car, double& dist);
 	void set_map(const vector<double> &maps_x, const vector<double> &maps_y);
