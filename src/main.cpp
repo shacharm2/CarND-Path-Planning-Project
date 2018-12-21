@@ -63,19 +63,17 @@ int argmin(vector<double> costs)
 	}
 	return id;
 }
-
-float goal_distance_cost(int goal_lane, int intended_lane, int final_lane, float distance_to_goal) {
-    /*
-    The cost increases with both the distance of intended lane from the goal
-    and the distance of the final lane from the goal. The cost of being out of the 
-    goal lane also becomes larger as vehicle approaches the goal.
-    */
-    float cost = 1 - exp(-2*abs(2 * goal_lane - intended_lane - final_lane) / distance_to_goal);
-
-    return cost;
-}
-
-
+/*
+double calc_velocity(double dv, a_max
+				//double dv = -5;
+				double a = abs(dv/(T - t_prev));
+				while (a > 0.5 * a_max && dv < 0){
+					dv += 0.01;
+					a = abs(dv/(T - t_prev));
+				}
+				ref_vel += dv;
+				ref_vel = max(neighbor_speed, ref_vel);
+*/
 
 float inefficiency_cost(int target_speed, int intended_lane, int final_lane, vector<int> lane_speeds) {
     /*
@@ -298,7 +296,8 @@ int main() {
 			int front_car_id = front_vehicles[car.lane];
 			double frac = 1. / (1 + exp(-car_speed));
 			if (front_car_id == -1 || front_distances[car.lane] > 1.2 * safe_dist) {
-				
+				cout << "accelerate" << endl;
+	
 				double target_vel = v_max;
 				if (front_car_id != -1) {
 					double xinterp = (safe_dist / front_distances[car.lane]);
@@ -313,8 +312,6 @@ int main() {
 				}
 				ref_vel += dv;
 				ref_vel = min(target_vel, ref_vel);
-
-				cout << "accelerate = " << dv << " T-t_prev=" << T-t_prev << endl;
 			}
 			else if (front_distances[car.lane] > safe_dist) {
 
@@ -325,7 +322,6 @@ int main() {
 					double dv = neighbor_speed - ref_vel;
 					double dvs = (dv < 0 ? -1 : 1);
 					double a = abs(dv/(T - t_prev));
-					// cout << a << " " << frac * a_max << endl;
 					while (a > frac * a_max && dv != 0){
 						dv = dvs * (abs(dv) - 0.05);
 						a = abs(dv/(T - t_prev));
@@ -383,19 +379,54 @@ int main() {
 					cout << "leading/trailing distance[" << i_lane << "] = " << lane_leading_distance << "," << lane_trailing_distance << endl;
 				}
 
+				double fwd_dist_weight = 1;
+				double change_lane_weight = 0.5;
+				double leading_safety_weight = 10;
+				double trailing_safety_weight = 100;
 				for (int i_lane = 0; i_lane < 3; i_lane++)
 				{
-					// cost reasons
+					// retrieve data
 					vector<double> dists = car.get_distances(i_lane);
-					double lane_leading_distance = 10000, lane_trailing_distance = 10000;
-					car.get_leading(i_lane, lane_leading_distance);
-					car.get_trailing(i_lane, lane_trailing_distance);
+					double lane_leading_distance = 10000, lane_trailing_distance = -10000;
+					int leading = car.get_leading(i_lane, lane_leading_distance);
+					int trailing = car.get_trailing(i_lane, lane_trailing_distance);
+					assert(lane_trailing_distance < 0);
+					assert(lane_leading_distance > 0);
+
+					// calculate costs
 					double fwd_dist_cost = exp(1 - lane_leading_distance / ref_dist); // passes 1 for small distance
+					double change_lane_cost = pow(car.lane - i_lane, 2);
+					double leading_safety_cost = 0;
+					if (leading != -1)
+					{
+						if (lane_leading_distance < safe_dist && lane_leading_distance >= 0) {
+							leading_safety_cost = 1;
+						}
+					}
 
-					double change_lane_cost = 0.5 * pow(car.lane - i_lane, 2);
+					double trailing_safety_cost = 0;
+					if (trailing != -1)
+					{
+						double trailing_vel = car.neighbors[trailing].s_state[1];
+						if (abs(lane_trailing_distance) < safe_dist / 3 && i_lane != car.lane) { 
+							trailing_safety_cost = 1;
+						}
+						else if (-lane_trailing_distance < safe_dist && i_lane != car.lane && trailing_vel >= ref_vel) {
+							trailing_safety_cost = 1;
+						}
+					}					
 
+					// sum costs
 					//costs[i_lane] += 1 / (1 + exp(- pow(get_pose(i_lane) - pos_d, 2)));
-					costs[i_lane] = fwd_dist_cost + change_lane_cost;
+					costs[i_lane] += fwd_dist_weight * fwd_dist_cost;
+					costs[i_lane] += change_lane_weight * change_lane_cost;
+					costs[i_lane] += leading_safety_weight * leading_safety_cost;
+					costs[i_lane] += trailing_safety_weight * trailing_safety_cost;
+					
+
+					if (abs(lane_trailing_distance) < safe_dist / 2 && i_lane != car.lane) {
+						costs[i_lane] = 1000;
+					}
 					// set no-gos
 					/*
 					if (lane_leading_distance < safe_dist || (abs(lane_trailing_distance) < safe_dist && i_lane != car.lane))
@@ -404,6 +435,7 @@ int main() {
 						free_lane[i_lane] = false;
 					}*/
 					
+					/*
 					for (int id = 0; id < dists.size(); id++)
 					{
 						if ((dists[id] > 0 & dists[id] < safe_dist))// || (dists[id] < 0 & dists[id] > -D & i_lane != car.lane))
@@ -411,13 +443,15 @@ int main() {
 							costs[i_lane] = 10;
 							free_lane[i_lane] = false;
 						}
-					}
+					}*/
 					
 						
 					cout << "costs[" << i_lane << "] = " << costs[i_lane] << " | " << "fd = " << front_distances[i_lane] << " | fwd cost =" << fwd_dist_cost << endl;
 					
 				}
 				cout << endl;
+
+				assert(costs[car.lane] < 20);
 				int min_cost_lane = argmin(costs);
 				/*if (abs(min_cost_lane - car.lane) > 1 && free_lane[1]) {
 					car.lane = 1;
@@ -467,7 +501,7 @@ int main() {
 					pos_d = get_pose(target_lane);
 				}*/
 				pos_d = get_pose(target_lane);
-				vector<double> wp = getXY(pos_s + (id+1) * D, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+				vector<double> wp = getXY(pos_s + (id+1) * D * 1.5, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
 				anchor_x.push_back(wp[0]);
 				anchor_y.push_back(wp[1]);
 			}
