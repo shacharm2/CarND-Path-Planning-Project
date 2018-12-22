@@ -50,7 +50,7 @@ public:
 	int get_leading(int target_lane, double& distance);
 	int get_trailing(int target_lane, double& distance);
 	double predict(const double t);
-	void set_sdt(const double s, const double d, const double t);
+	void set_sdt(const double s, const double d, const double sdot, const double t);
 	void generate_trajectories();
 	vector<Vehicle> neighbors;
 	int select_lane();
@@ -64,6 +64,8 @@ public:
 	vector<double> get_loc() const;
 	vector<double> get_vel() const;
 	vector<double> get_acc() const;
+
+	void set_reference_velocity(const double tstart, const double tend, const double safe_dist);
 
 	//double operator() (double x) const;
 	void add(const double x, const double y);
@@ -81,15 +83,20 @@ public:
 
 	PhysicalState init_loc, curr_loc;
 
-	vector<double> s_state, d_state;
 	double t = 0;
 
 	trajectory jmt_estimator_s = trajectory("JMT");
 	trajectory jmt_estimator_d = trajectory("JMT");
 	double sampling_time;
+	double ref_vel;
 	int lane;
 private:
 	
+	const double v_max = 21.5; // m/sec ~ 48 mph 
+	const double a_max = 10; // m/s^2
+	const double max_jerk = 10; // m/s^3
+
+	vector<double> s_state, d_state;
 	const double frame_time = 1;
 	void update(const vector<double> x, const vector<double> y);	
 	

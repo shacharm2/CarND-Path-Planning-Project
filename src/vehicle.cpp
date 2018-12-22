@@ -50,6 +50,7 @@ vector< vector<double> > get_frenet_full_state(double x, double y, double angle,
 
 Vehicle::Vehicle(vector<double> S, vector<double> d)
 {
+	this->ref_vel = 0;
 	this->s_state = vector<double>(S);
 	this->d_state = vector<double>(d);
 	this->lane = get_lane(d[0]);
@@ -59,6 +60,7 @@ Vehicle::Vehicle(vector<double> S, vector<double> d)
 
 Vehicle::Vehicle(const int lane)//, const double sampling_time)
 {
+	this->ref_vel = 0;
 	this->lane = lane;
 	// this->sampling_time = sampling_time;
 	this->s_state = vector<double>({0, 0, 0});
@@ -71,13 +73,15 @@ Vehicle::Vehicle(const Vehicle &vehicle)
 {
 	this->s_state = vehicle.s_state;
 	this->d_state = vehicle.d_state;
+	this->ref_vel = vehicle.ref_vel;
 	this->state = vehicle.state;
 	this->lane = vehicle.lane;
 }
 
-void Vehicle::set_sdt(const double s, const double d, const double t)
+void Vehicle::set_sdt(const double s, const double d, const double sdot, const double t)
 {
 	this->s_state[0] = s;
+	this->s_state[1] = sdot;
 	this->d_state[0] = d;
 	this->t = t;
 	this->lane = get_lane(d);
@@ -212,6 +216,62 @@ double Vehicle::predict(const double t)
 	return pos_s + speed_s * t + 0.5 * acc_s * t * t;
 }
 
+void Vehicle::set_reference_velocity(const double tstart, const double tend, const double safe_dist)
+{
+	double leading_dist = 10000, trailing_dist = 10000;
+	int front_car_id = this->get_leading(this->lane, leading_dist); //front_vehicles[car.lane];
+
+	//double frac = 1. / (1 + exp(-car_speed));
+	double frac = 1. / (1 + exp(-this->get_vel()[0]));
+	if (front_car_id == -1 || leading_dist > 1.2 * safe_dist) {
+		cout << "accelerate" << endl;
+
+		double target_vel = v_max;
+		if (front_car_id != -1) {
+			double xinterp = (safe_dist / leading_dist);
+			double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
+			target_vel = v_max * (1-xinterp) + neighbor_speed * xinterp;
+		}
+		double dv = 2;
+		double a = dv/(tend - tstart);
+		while (a > frac * a_max && dv > 0){
+			dv -= 0.01;
+			a = dv/(tend - tstart);
+		}
+		this->ref_vel += dv;
+		this->ref_vel = min(target_vel, this->ref_vel);
+	}
+	else if (leading_dist > safe_dist) {
+
+		cout << "match speed" << endl;
+		double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
+		if (neighbor_speed > this->ref_vel)
+		{
+			double dv = neighbor_speed - this->ref_vel;
+			double dvs = (dv < 0 ? -1 : 1);
+			double a = abs(dv/(tend - tstart));
+			while (a > frac * a_max && dv != 0){
+				dv = dvs * (abs(dv) - 0.05);
+				a = abs(dv/(tend - tstart));
+			}
+			this->ref_vel += dv;
+			this->ref_vel = min(v_max, this->ref_vel);
+		}
+	}			
+	else if (leading_dist < safe_dist) {
+		double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
+
+		double dv = -5;
+		double a = abs(dv/(tend - tstart));
+		while (a > 0.5 * a_max && dv < 0){
+			dv += 0.01;
+			a = abs(dv/(tend - tstart));
+		}
+		this->ref_vel += dv;
+		this->ref_vel = max(neighbor_speed, this->ref_vel);
+		cout << "decelerate = " << dv << endl;
+	}
+}
 
 bool Vehicle::is_infront_of(Vehicle& car, double& dist)
 {

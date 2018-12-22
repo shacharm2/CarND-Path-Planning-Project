@@ -60,7 +60,7 @@ double eval_trailing_safety_cost(Vehicle& car, int lane, double ref_dist, double
 	double cost = 0;
 	if (trailing != -1)
 	{
-		double trailing_vel = car.neighbors[trailing].s_state[1];
+		double trailing_vel = car.neighbors[trailing].get_vel()[0]; //s_state[1];
 		if (abs(lane_trailing_distance) < ref_dist / 3 && lane != car.lane) { 
 			cost = 1;
 		}

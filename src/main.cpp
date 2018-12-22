@@ -241,16 +241,9 @@ int main() {
 			double t_prev = dt * prev_path_size;
 
 			// initial location
-			car.set_sdt(car_s, car_d, 0);
-
-			/* temp hack */
-			// if (car_speed > 20)	{
-			// 	target_lane = 0;
-			// }
-			/* temp hack */
+			car.set_sdt(car_s, car_d, car_speed, 0);
 
 			// sensor fusion
-			const int nID = 0, nX = 1, nY = 2, nVX = 3, nVY = 4, nS = 5, nD = 6;
 			double dampening = 0.5;
 			double closest_dist = 1e99;
 			double closest_neighbor = -1;
@@ -258,8 +251,8 @@ int main() {
 			vector<int> front_vehicles;
 			vector<double> front_distances;
 			vector<Vehicle> neighbors = generateNeighbors(sensor_fusion);
-			// car.neighbors = vector<Vehicle>(neighbors);
 			car.set_neighbors(neighbors);
+
 			for (int i_lane = 0; i_lane < 3; i_lane++)
 			{
 				double distance = 10000;
@@ -267,7 +260,10 @@ int main() {
 				front_vehicles.push_back(front_curr_vehicle);
 				front_distances.push_back(distance);
 			}
+
+			//vector<double> sd_init = getFrenet(pos_x, pos_y, angle, map_waypoin./ts_x, map_waypoints_y);
 			double velocity = car_speed;
+
 			if(prev_path_size < 2)
 			{
 				prev_pos_x = pos_x - cos(angle);
@@ -285,76 +281,79 @@ int main() {
 				velocity = sqrt(pow((pos_x - prev_pos_x) / dt, 2) + pow((pos_y - prev_pos_y) / dt, 2));
 			}
 			
-			//vector<double> sd_init = getFrenet(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
-
-
-
-			int front_car_id = front_vehicles[car.lane];
-			double frac = 1. / (1 + exp(-car_speed));
-			if (front_car_id == -1 || front_distances[car.lane] > 1.2 * safe_dist) {
-				cout << "accelerate" << endl;
-	
-				double target_vel = v_max;
-				if (front_car_id != -1) {
-					double xinterp = (safe_dist / front_distances[car.lane]);
-					double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
-					target_vel = v_max * (1-xinterp) + neighbor_speed * xinterp;
-				}
-				double dv = 2;
-				double a = dv/(T - t_prev);
-				while (a > frac * a_max && dv > 0){
-					dv -= 0.01;
-					a = dv/(T - t_prev);
-				}
-				ref_vel += dv;
-				ref_vel = min(target_vel, ref_vel);
-			}
-			else if (front_distances[car.lane] > safe_dist) {
-
-				cout << "match speed" << endl;
-				double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
-				if (neighbor_speed > ref_vel)
-				{
-					double dv = neighbor_speed - ref_vel;
-					double dvs = (dv < 0 ? -1 : 1);
-					double a = abs(dv/(T - t_prev));
-					while (a > frac * a_max && dv != 0){
-						dv = dvs * (abs(dv) - 0.05);
-						a = abs(dv/(T - t_prev));
-					}
-					ref_vel += dv;
-					ref_vel = min(v_max, ref_vel);
-				}
-			}			
-			else if (front_distances[car.lane] < safe_dist) {
-				double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
-
-				double dv = -5;
-				double a = abs(dv/(T - t_prev));
-				while (a > 0.5 * a_max && dv < 0){
-					dv += 0.01;
-					a = abs(dv/(T - t_prev));
-				}
-				ref_vel += dv;
-				ref_vel = max(neighbor_speed, ref_vel);
-				cout << "decelerate = " << dv << endl;
-			}
-
-			// generate trajectories
-
-			for(int i = 0; i < prev_path_size; i++)
-			{
-				next_x_vals.push_back(previous_path_x[i]);
-				next_y_vals.push_back(previous_path_y[i]);
-			}
-
 			if (prev_path_size > 0) {
 				pos_s = end_path_s;
 				pos_d = end_path_d;
 			}
 
 			// initial location
-			car.set_sdt(pos_s, pos_d, t_prev);
+			car.set_sdt(pos_s, pos_d, velocity, t_prev);
+
+			if (false)
+			{
+				int front_car_id = front_vehicles[car.lane];
+				double frac = 1. / (1 + exp(-car_speed));
+				if (front_car_id == -1 || front_distances[car.lane] > 1.2 * safe_dist) {
+					cout << "accelerate" << endl;
+		
+					double target_vel = v_max;
+					if (front_car_id != -1) {
+						double xinterp = (safe_dist / front_distances[car.lane]);
+						double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
+						target_vel = v_max * (1-xinterp) + neighbor_speed * xinterp;
+					}
+					double dv = 2;
+					double a = dv/(T - t_prev);
+					while (a > frac * a_max && dv > 0){
+						dv -= 0.01;
+						a = dv/(T - t_prev);
+					}
+					ref_vel += dv;
+					ref_vel = min(target_vel, ref_vel);
+				}
+				else if (front_distances[car.lane] > safe_dist) {
+
+					cout << "match speed" << endl;
+					double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
+					if (neighbor_speed > ref_vel)
+					{
+						double dv = neighbor_speed - ref_vel;
+						double dvs = (dv < 0 ? -1 : 1);
+						double a = abs(dv/(T - t_prev));
+						while (a > frac * a_max && dv != 0){
+							dv = dvs * (abs(dv) - 0.05);
+							a = abs(dv/(T - t_prev));
+						}
+						ref_vel += dv;
+						ref_vel = min(v_max, ref_vel);
+					}
+				}			
+				else if (front_distances[car.lane] < safe_dist) {
+					double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
+
+					double dv = -5;
+					double a = abs(dv/(T - t_prev));
+					while (a > 0.5 * a_max && dv < 0){
+						dv += 0.01;
+						a = abs(dv/(T - t_prev));
+					}
+					ref_vel += dv;
+					ref_vel = max(neighbor_speed, ref_vel);
+					cout << "decelerate = " << dv << endl;
+				}
+			}
+			else {
+				car.set_reference_velocity(t_prev, T, safe_dist);
+			}
+			ref_vel = car.ref_vel;
+			// generate trajectories
+			// for(int i = 0; i < prev_path_size; i++)
+			// {
+			// 	next_x_vals.push_back(previous_path_x[i]);
+			// 	next_y_vals.push_back(previous_path_y[i]);
+			// }
+
+
 			// int prev_car_lane = car_lane;
 			if (car_speed > 10)//true)//front_car_id != -1)
 			{
@@ -435,8 +434,8 @@ int main() {
 				}
 
 			}
-			car.d_state[0] = get_pose(car.lane);
-			pos_d = car.d_state[0];
+			// car.d_state[0] = get_pose(car.lane);
+			// pos_d = car.d_state[0];
 
 
 			// trajectory_planner
@@ -499,6 +498,13 @@ int main() {
 			double dist_inc = 0.5;
 			vector<double> X, Y;
 			double vx, vy;
+
+
+			for(int i = 0; i < prev_path_size; i++)
+			{
+				next_x_vals.push_back(previous_path_x[i]);
+				next_y_vals.push_back(previous_path_y[i]);
+			}
 
 			for(int i = 0; i < 50-prev_path_size; i++)
 			{    
