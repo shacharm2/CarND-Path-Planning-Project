@@ -13,6 +13,8 @@ using namespace std;
 
 constexpr double pi() { return M_PI; }
 
+int argmin(vector<double> costs);
+
 double distance(double x1, double y1, double x2, double y2);
 
 int ClosestWaypoint(double x, double y, const vector<double> &maps_x, const vector<double> &maps_y);

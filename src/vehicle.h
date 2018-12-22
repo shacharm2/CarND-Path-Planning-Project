@@ -51,9 +51,10 @@ public:
 	int get_trailing(int target_lane, double& distance);
 	double predict(const double t);
 	void set_sdt(const double s, const double d, const double sdot, const double t);
+	void set_safe_distance(const double safe_dist);
 	void generate_trajectories();
 	vector<Vehicle> neighbors;
-	int select_lane();
+
 	vector<double> get_distances(int lane);
 
 	bool is_infront_of(Vehicle& car, double& dist);
@@ -66,6 +67,8 @@ public:
 	vector<double> get_acc() const;
 
 	void set_reference_velocity(const double tstart, const double tend, const double safe_dist);
+	int select_lane();
+	
 
 	//double operator() (double x) const;
 	void add(const double x, const double y);
@@ -89,10 +92,13 @@ public:
 	trajectory jmt_estimator_d = trajectory("JMT");
 	double sampling_time;
 	double ref_vel;
-	int lane;
+	unsigned int lane, target_lane;
+
 private:
-	
+	double safe_dist = 0;
 	const double v_max = 21.5; // m/sec ~ 48 mph 
+	const double v_min = 10; // m/sec minum for manuvering
+	
 	const double a_max = 10; // m/s^2
 	const double max_jerk = 10; // m/s^3
 

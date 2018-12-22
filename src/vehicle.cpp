@@ -1,5 +1,5 @@
 #include "vehicle.h"
-
+#include "costs.h"
 
 vector< vector<double> > get_frenet_full_state(double x, double y, double angle, double speed, double acc, double sampling_time, const vector<double> &maps_x, const vector<double> &maps_y)
 {
@@ -87,6 +87,11 @@ void Vehicle::set_sdt(const double s, const double d, const double sdot, const d
 	this->lane = get_lane(d);
 }
 
+void Vehicle::set_safe_distance(const double safe_dist)
+{
+	this->safe_dist = safe_dist;
+}
+
 void Vehicle::set_neighbors(vector<Vehicle>& neighbors)
 {
 	this->neighbors = vector<Vehicle>(neighbors);
@@ -136,10 +141,6 @@ void Vehicle::generate_trajectories()
 	}
 }
 
-int Vehicle::select_lane()
-{
-
-}
 
 void Vehicle::set_location(double x, double y, double s, double d, double yaw, double speed, double acc)
 {
@@ -272,6 +273,92 @@ void Vehicle::set_reference_velocity(const double tstart, const double tend, con
 		cout << "decelerate = " << dv << endl;
 	}
 }
+
+int Vehicle::select_lane()
+{
+	this->target_lane = this->lane;
+	if (this->get_vel()[0] < this->v_min)
+	{
+		return this->target_lane;
+	}
+	vector<bool> free_lane({true, true, true});
+	vector<double> costs({0,0,0});
+
+	double ref_dist = 10000;
+	int curr_leading_car = this->get_leading(this->lane, ref_dist);
+	if (curr_leading_car == -1) {
+		ref_dist = this->safe_dist;
+	}
+
+	for (int i_lane = 0; i_lane < 3; i_lane++)
+	{
+		double lane_leading_distance = 10000, lane_trailing_distance = 10000;
+		this->get_leading(i_lane, lane_leading_distance);
+		this->get_trailing(i_lane, lane_trailing_distance);
+		cout << "leading/trailing distance[" << i_lane << "] = " << lane_leading_distance << "," << lane_trailing_distance << endl;
+	}
+
+	double leading_distance_weight = 1;
+	double change_lane_weight = 0.5;
+	double leading_safety_weight = 10;
+	double trailing_safety_weight = 100;
+	double no_leading_weight = 1;//0.5;
+	for (int lane_candidate = 0; lane_candidate < 3; lane_candidate++)
+	{
+		// retrieve data
+		vector<double> dists = this->get_distances(lane_candidate);
+		double lane_leading_distance = 10000, lane_trailing_distance = -10000;
+		int leading = this->get_leading(lane_candidate, lane_leading_distance);
+		int trailing = this->get_trailing(lane_candidate, lane_trailing_distance);
+		assert(lane_trailing_distance < 0);
+		assert(lane_leading_distance > 0);
+
+		// calculate costs
+		// double fwd_dist_cost = exp(1 - lane_leading_distance / ref_dist); // passes 1 for small distance
+
+		double leading_distance_cost = eval_leading_distance_cost(*this, lane_candidate, ref_dist);
+		double change_lane_cost = eval_change_lane_cost(*this, lane_candidate); //pow(car.lane - lane_candidate, 2);
+		double leading_safety_cost = eval_leading_safety_cost(*this, lane_candidate, safe_dist);
+		double no_leading_cost = eval_is_leading_vehicle(*this, lane_candidate, ref_dist);
+		double trailing_safety_cost = eval_trailing_safety_cost(*this, lane_candidate, safe_dist, this->ref_vel);
+
+		// sum costs
+		costs[lane_candidate] += leading_distance_weight * leading_distance_cost;
+		costs[lane_candidate] += change_lane_weight * change_lane_cost;
+		costs[lane_candidate] += leading_safety_weight * leading_safety_cost;
+		costs[lane_candidate] += trailing_safety_weight * trailing_safety_cost;
+		// costs[lane_candidate] += no_leading_weight * no_leading_cost;
+
+
+		// set no-gos
+		if (abs(lane_trailing_distance) < safe_dist / 2 && lane_candidate != this->lane) {
+			costs[lane_candidate] = 1000;
+		}
+		cout << "costs[" << lane_candidate << "] = " << costs[lane_candidate] << endl;
+		
+	}
+	cout << endl;
+
+	// assert(costs[car.lane] < 20);
+	int min_cost_lane = argmin(costs);
+	/*if (abs(min_cost_lane - car.lane) > 1 && free_lane[1]) {
+		car.lane = 1;
+	}*/
+	if (this->lane == 1)// && (costs[0] < costs[1] || costs[2] < costs[1])) 
+	{
+		this->target_lane = min_cost_lane;
+		cout << "1 -> " << this->lane << endl;
+	}
+
+	else if ((this->lane == 0 && costs[0] > costs[1]) || (this->lane == 2 && costs[1] < costs[2]))
+	{
+		cout << this->lane << " -> 1" << endl;
+		this->target_lane = 1;
+	}
+
+	return this->target_lane;
+}
+
 
 bool Vehicle::is_infront_of(Vehicle& car, double& dist)
 {
