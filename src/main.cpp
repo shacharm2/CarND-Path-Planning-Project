@@ -230,25 +230,8 @@ int main() {
 			car.set_sdt(car_s, car_d, car_speed, 0);
 			car.set_safe_distance(safe_dist);
 
-			// sensor fusion
-			double dampening = 0.5;
-			double closest_dist = 1e99;
-			double closest_neighbor = -1;
-		
-			vector<int> front_vehicles;
-			vector<double> front_distances;
 			vector<Vehicle> neighbors = generateNeighbors(sensor_fusion);
 			car.set_neighbors(neighbors);
-
-			for (int i_lane = 0; i_lane < 3; i_lane++)
-			{
-				double distance = 10000;
-				int front_curr_vehicle = car.get_leading(i_lane, distance);
-				front_vehicles.push_back(front_curr_vehicle);
-				front_distances.push_back(distance);
-			}
-
-			//vector<double> sd_init = getFrenet(pos_x, pos_y, angle, map_waypoin./ts_x, map_waypoints_y);
 			double velocity = car_speed;
 
 			if(prev_path_size < 2)
@@ -275,108 +258,17 @@ int main() {
 
 			// initial location
 			car.set_sdt(pos_s, pos_d, velocity, t_prev);
+
+			// target velocity
 			car.set_reference_velocity(t_prev, T, safe_dist);
 
+			// cost based lane selection
 			target_lane = car.select_lane();
-			// car.d_state[0] = get_pose(car.lane);
-			// pos_d = car.d_state[0];
 
-			
-			if(true) 
-			{
-				next_x_vals.clear();
-				next_y_vals.clear();
-				car.generate_trajectory(previous_path_x, previous_path_y, t_prev, T, D, car_speed, angle, prev_pos_x, pos_x, prev_pos_y, pos_y,
-					pos_s, pos_d, map_waypoints_x, map_waypoints_y, map_waypoints_s, next_x_vals, next_y_vals);
-			}
-			else 
-			{
-
-				// trajectory_planner
-				trajectory trajectory_planner("spline");
-
-				// previous anchors
-				vector<double> anchor_x, anchor_y;
-				anchor_x.push_back(prev_pos_x);
-				anchor_y.push_back(prev_pos_y);
-				
-				anchor_x.push_back(pos_x);
-				anchor_y.push_back(pos_y);
-				
-				// trajectory_planner.create_trajectory(vector<double> x, vector<double>y, const double start_d, const double end_d)
-
-				// next anchors
-				for (int id = 0; id < 3; id++)
-				{
-					pos_d = get_pose(target_lane);
-					vector<double> wp = getXY(pos_s + (id+1) * D * 1.5, pos_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-					anchor_x.push_back(wp[0]);
-					anchor_y.push_back(wp[1]);
-					cout << id << " = " << wp[0] << ", " << wp[1] << endl;
-				}
-
-				// transform to car coordiantes
-				cout << "rotated" <<endl;
-				for (int ia = 0; ia < anchor_x.size(); ia++)
-				{
-					double _x = anchor_x[ia] - pos_x, _y = anchor_y[ia] - pos_y;
-					anchor_x[ia] = _x * cos(angle) + _y * sin(angle);
-					anchor_y[ia] = _y * cos(angle) - _x * sin(angle);
-					cout << ia << " " << anchor_x[ia] << " " << anchor_y[ia] << endl;
-				}
-				cout << endl;				// create a spline
-
-
-				trajectory estimator("spline");	// tk::spline spline_estimator;
-				
-
-				// spline_estimator.set_points(anchor_x, anchor_y);
-				estimator.set_points(anchor_x, anchor_y);
-				double _D = pos_x + car_speed * (T - t_prev) +  0.5 * a_max * pow(T - t_prev, 2);
-
-				double target_x = _D, target_y = estimator(_D); //spline_estimator(D);
-				double distance = sqrt(pow(target_x, 2) + pow(target_y, 2));
-				int N = (int)(distance / (dt * car.ref_vel)); // /2.24
-				// D^2 + spline_estimator(D) ^ 2 = distance
-
-				// vector<double> X, Y;
-				// double vx, vy;
-
-				for(int i = 0; i < prev_path_size; i++)
-				{
-					next_x_vals.push_back(previous_path_x[i]);
-					next_y_vals.push_back(previous_path_y[i]);
-				}
-
-				for(int i = 0; i < 50-prev_path_size; i++)
-				{    
-					double xc = (i+1) * target_x / N;
-					double yc = estimator(xc); //spline_estimator(xc);
-					// cout << "xc,yc=" << xc << "," << yc << endl;
-
-					double x = xc * cos(angle) - yc * sin(angle) + pos_x;
-					double y = xc * sin(angle) + yc * cos(angle) + pos_y;
-					// vector<double> xy = getXY(xf_s, yf_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-					next_x_vals.push_back(x);
-					next_y_vals.push_back(y);
-					// car.add(x, y);
-					// X.push_back(x);
-					// Y.push_back(y);
-					// if (X.size() > 3)
-					// {
-					// 	X.erase(X.begin());
-					// 	Y.erase(Y.begin());
-					// 	double ax = (X[0] - 2 * X[1] + X[2]) / (dt * dt);
-					// 	double ay = (Y[0] - 2 * Y[1] + Y[2]) / (dt * dt);
-					// }
-				}
-
-
-				// car.generate_trajectory(previous_path_x, previous_path_y, t_prev, T, D, car_speed, angle, prev_pos_x, pos_x, prev_pos_y, pos_y,
-				// 	pos_s, pos_d, map_waypoints_x, map_waypoints_y, map_waypoints_s);
-
-			}
-			
+			// generat appropriate trajectory
+			// how about to generate all trajectories prior to lane selection and then calculate total trajectory cost?
+			car.generate_trajectory(previous_path_x, previous_path_y, t_prev, T, D, car_speed, angle, prev_pos_x, pos_x, prev_pos_y, pos_y,
+				pos_s, pos_d, map_waypoints_x, map_waypoints_y, map_waypoints_s, next_x_vals, next_y_vals);
 
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
