@@ -93,7 +93,7 @@ vector<double> Vehicle::get_loc() const
 	return vector<double>({this->s_state[0], this->d_state[0]});
 }
 
-vector<double> Vehicle::get_speed() const
+vector<double> Vehicle::get_vel() const
 {
 	return vector<double>({this->s_state[1], this->d_state[1]});
 }
@@ -160,7 +160,8 @@ int Vehicle::get_leading(int target_lane, double& distance)
 	{
 		// double front_dist = (neighbors[in].s_state[0] + neighbors[in].s_state[1] * this->sampling_time) - (this->s_state[0] + this->s_state[1] * this->sampling_time);
 
-		double front_dist = neighbors[in].predict(this->t + 0.02) - this->s_state[0];
+		//double front_dist = neighbors[in].predict(this->t + 0.02) - this->s_state[0];
+		double front_dist = neighbors[in].predict(this->t + 0.02) - this->get_loc()[0]; //s_state[0];
 		if ((target_lane == neighbors[in].lane) && (front_dist > 0) && (front_dist < closest_dist))
 		{
 			// cout << in << " : lane " << neighbors[in].lane << ", s=" << neighbors[in].s_state[0] - this->s_state[0] << endl;
@@ -189,7 +190,8 @@ int Vehicle::get_trailing(int target_lane, double& distance)
 	
 	for (int in = 0; in < neighbors.size(); in++)
 	{
-		double back_dist = this->s_state[0] - neighbors[in].predict(this->t + 0.02);
+		//double back_dist = this->s_state[0] - neighbors[in].predict(this->t + 0.02);
+		double back_dist = this->get_loc()[0] - neighbors[in].predict(this->t + 0.02);
 		if ((target_lane == neighbors[in].lane) && (back_dist >= 0) && (back_dist < closest_dist))
 		{
 			// cout << in << " : lane " << neighbors[in].lane << ", s=" << neighbors[in].s_state[0] - this->s_state[0] << endl;
@@ -204,9 +206,9 @@ int Vehicle::get_trailing(int target_lane, double& distance)
 
 double Vehicle::predict(const double t)
 {
-	double pos_s = this->s_state[0];
-	double speed_s = this->s_state[1];
-	double acc_s = this->s_state[2];
+	double pos_s = this->get_loc()[0];
+	double speed_s = this->get_vel()[0];
+	double acc_s = this->get_acc()[0];
 	return pos_s + speed_s * t + 0.5 * acc_s * t * t;
 }
 
@@ -221,25 +223,6 @@ bool Vehicle::is_infront_of(Vehicle& car, double& dist)
 	// cout << "this->s_state[0]" 
 	dist = this->s_state[0] - car.s_state[0];
 	return true;
-}
-
-// double Vehicle::get_leading_distance()
-// {
-// 	double dist = -1;
-// 	if (this->front_vehicle) {
-// 		dist = this->front_vehicle->s_state[0] - this->s_state[0];
-// 		cout << dist << ", " << this->front_vehicle->s_state[0] << ", " << this->s_state[0] << endl;
-// 		cout << "this->front_vehicle=" << this->front_vehicle << endl;
-// 	}
-// 	return dist;
-// }
-
-
-
-void Vehicle::set_map(const vector<double> &maps_x, const vector<double> &maps_y)
-{
-	this->maps_x = maps_x;
-	this->maps_y = maps_y;
 }
 
 

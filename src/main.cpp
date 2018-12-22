@@ -266,11 +266,7 @@ int main() {
 				int front_curr_vehicle = car.get_leading(i_lane, distance);
 				front_vehicles.push_back(front_curr_vehicle);
 				front_distances.push_back(distance);
-				// assert(n_leading == front_curr_vehicle);
 			}
-			//cout << "front_distances[" << car.lane << "]=" << front_distances[car.lane] << " with id " << front_vehicles[car.lane] << endl ;
-
-
 			double velocity = car_speed;
 			if(prev_path_size < 2)
 			{
@@ -289,7 +285,7 @@ int main() {
 				velocity = sqrt(pow((pos_x - prev_pos_x) / dt, 2) + pow((pos_y - prev_pos_y) / dt, 2));
 			}
 			
-			vector<double> sd_init = getFrenet(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
+			//vector<double> sd_init = getFrenet(pos_x, pos_y, angle, map_waypoints_x, map_waypoints_y);
 
 
 
@@ -301,7 +297,7 @@ int main() {
 				double target_vel = v_max;
 				if (front_car_id != -1) {
 					double xinterp = (safe_dist / front_distances[car.lane]);
-					double neighbor_speed = neighbors[front_car_id].s_state[1];
+					double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
 					target_vel = v_max * (1-xinterp) + neighbor_speed * xinterp;
 				}
 				double dv = 2;
@@ -316,7 +312,7 @@ int main() {
 			else if (front_distances[car.lane] > safe_dist) {
 
 				cout << "match speed" << endl;
-				double neighbor_speed = neighbors[front_car_id].s_state[1];
+				double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
 				if (neighbor_speed > ref_vel)
 				{
 					double dv = neighbor_speed - ref_vel;
@@ -331,7 +327,7 @@ int main() {
 				}
 			}			
 			else if (front_distances[car.lane] < safe_dist) {
-				double neighbor_speed = neighbors[front_car_id].s_state[1];
+				double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
 
 				double dv = -5;
 				double a = abs(dv/(T - t_prev));

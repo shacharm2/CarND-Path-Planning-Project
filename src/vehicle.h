@@ -57,12 +57,12 @@ public:
 	vector<double> get_distances(int lane);
 
 	bool is_infront_of(Vehicle& car, double& dist);
-	void set_map(const vector<double> &maps_x, const vector<double> &maps_y);
+
 	void cycle(PhysicalState physical_state, const vector<double> x, const vector<double> y);
 	vector< vector<double> > get_frenet() const;
 	void set_neighbors(vector<Vehicle>& neighbors);
 	vector<double> get_loc() const;
-	vector<double> get_speed() const;
+	vector<double> get_vel() const;
 	vector<double> get_acc() const;
 
 	//double operator() (double x) const;
