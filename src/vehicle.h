@@ -1,3 +1,4 @@
+#pragma once
 #include <string>
 #include <vector>
 #include <cassert>
@@ -60,6 +61,9 @@ public:
 	void cycle(PhysicalState physical_state, const vector<double> x, const vector<double> y);
 	vector< vector<double> > get_frenet() const;
 	void set_neighbors(vector<Vehicle>& neighbors);
+	vector<double> get_loc() const;
+	vector<double> get_speed() const;
+	vector<double> get_acc() const;
 
 	//double operator() (double x) const;
 	void add(const double x, const double y);
@@ -76,6 +80,7 @@ public:
 	vector< vector<double> > get_init_target(const double x, const double y, const double angle, const double v, const double T, const int target_lane);
 
 	PhysicalState init_loc, curr_loc;
+
 	vector<double> s_state, d_state;
 	double t = 0;
 

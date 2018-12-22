@@ -88,6 +88,21 @@ void Vehicle::set_neighbors(vector<Vehicle>& neighbors)
 	this->neighbors = vector<Vehicle>(neighbors);
 }
 
+vector<double> Vehicle::get_loc() const
+{
+	return vector<double>({this->s_state[0], this->d_state[0]});
+}
+
+vector<double> Vehicle::get_speed() const
+{
+	return vector<double>({this->s_state[1], this->d_state[1]});
+}
+
+vector<double> Vehicle::get_acc() const
+{
+	return vector<double>({this->s_state[2], this->d_state[2]});
+}
+
 vector<double> Vehicle::get_distances(int lane)
 {
 	vector<double> dists;
