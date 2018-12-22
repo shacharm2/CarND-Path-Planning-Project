@@ -1,5 +1,5 @@
 #include "vehicle.h"
-
+#include "costs.h"
 
 vector< vector<double> > get_frenet_full_state(double x, double y, double angle, double speed, double acc, double sampling_time, const vector<double> &maps_x, const vector<double> &maps_y)
 {
@@ -50,6 +50,7 @@ vector< vector<double> > get_frenet_full_state(double x, double y, double angle,
 
 Vehicle::Vehicle(vector<double> S, vector<double> d)
 {
+	this->ref_vel = 0;
 	this->s_state = vector<double>(S);
 	this->d_state = vector<double>(d);
 	this->lane = get_lane(d[0]);
@@ -59,6 +60,7 @@ Vehicle::Vehicle(vector<double> S, vector<double> d)
 
 Vehicle::Vehicle(const int lane)//, const double sampling_time)
 {
+	this->ref_vel = 0;
 	this->lane = lane;
 	// this->sampling_time = sampling_time;
 	this->s_state = vector<double>({0, 0, 0});
@@ -71,21 +73,43 @@ Vehicle::Vehicle(const Vehicle &vehicle)
 {
 	this->s_state = vehicle.s_state;
 	this->d_state = vehicle.d_state;
+	this->ref_vel = vehicle.ref_vel;
 	this->state = vehicle.state;
 	this->lane = vehicle.lane;
 }
 
-void Vehicle::set_sdt(const double s, const double d, const double t)
+void Vehicle::set_sdt(const double s, const double d, const double sdot, const double t)
 {
 	this->s_state[0] = s;
+	this->s_state[1] = sdot;
 	this->d_state[0] = d;
 	this->t = t;
 	this->lane = get_lane(d);
 }
 
+void Vehicle::set_safe_distance(const double safe_dist)
+{
+	this->safe_dist = safe_dist;
+}
+
 void Vehicle::set_neighbors(vector<Vehicle>& neighbors)
 {
 	this->neighbors = vector<Vehicle>(neighbors);
+}
+
+vector<double> Vehicle::get_loc() const
+{
+	return vector<double>({this->s_state[0], this->d_state[0]});
+}
+
+vector<double> Vehicle::get_vel() const
+{
+	return vector<double>({this->s_state[1], this->d_state[1]});
+}
+
+vector<double> Vehicle::get_acc() const
+{
+	return vector<double>({this->s_state[2], this->d_state[2]});
 }
 
 vector<double> Vehicle::get_distances(int lane)
@@ -117,10 +141,6 @@ void Vehicle::generate_trajectories()
 	}
 }
 
-int Vehicle::select_lane()
-{
-
-}
 
 void Vehicle::set_location(double x, double y, double s, double d, double yaw, double speed, double acc)
 {
@@ -145,7 +165,8 @@ int Vehicle::get_leading(int target_lane, double& distance)
 	{
 		// double front_dist = (neighbors[in].s_state[0] + neighbors[in].s_state[1] * this->sampling_time) - (this->s_state[0] + this->s_state[1] * this->sampling_time);
 
-		double front_dist = neighbors[in].predict(this->t + 0.02) - this->s_state[0];
+		//double front_dist = neighbors[in].predict(this->t + 0.02) - this->s_state[0];
+		double front_dist = neighbors[in].predict(this->t + 0.02) - this->get_loc()[0]; //s_state[0];
 		if ((target_lane == neighbors[in].lane) && (front_dist > 0) && (front_dist < closest_dist))
 		{
 			// cout << in << " : lane " << neighbors[in].lane << ", s=" << neighbors[in].s_state[0] - this->s_state[0] << endl;
@@ -174,7 +195,8 @@ int Vehicle::get_trailing(int target_lane, double& distance)
 	
 	for (int in = 0; in < neighbors.size(); in++)
 	{
-		double back_dist = this->s_state[0] - neighbors[in].predict(this->t + 0.02);
+		//double back_dist = this->s_state[0] - neighbors[in].predict(this->t + 0.02);
+		double back_dist = this->get_loc()[0] - neighbors[in].predict(this->t + 0.02);
 		if ((target_lane == neighbors[in].lane) && (back_dist >= 0) && (back_dist < closest_dist))
 		{
 			// cout << in << " : lane " << neighbors[in].lane << ", s=" << neighbors[in].s_state[0] - this->s_state[0] << endl;
@@ -189,12 +211,239 @@ int Vehicle::get_trailing(int target_lane, double& distance)
 
 double Vehicle::predict(const double t)
 {
-	double pos_s = this->s_state[0];
-	double speed_s = this->s_state[1];
-	double acc_s = this->s_state[2];
+	double pos_s = this->get_loc()[0];
+	double speed_s = this->get_vel()[0];
+	double acc_s = this->get_acc()[0];
 	return pos_s + speed_s * t + 0.5 * acc_s * t * t;
 }
 
+void Vehicle::set_reference_velocity(const double tstart, const double tend, const double safe_dist)
+{
+	double leading_dist = 10000, trailing_dist = 10000;
+	int front_car_id = this->get_leading(this->lane, leading_dist); //front_vehicles[car.lane];
+
+	//double frac = 1. / (1 + exp(-car_speed));
+	double frac = 1. / (1 + exp(-this->get_vel()[0]));
+	if (front_car_id == -1 || leading_dist > 1.2 * safe_dist) {
+		cout << "accelerate" << endl;
+
+		double target_vel = v_max;
+		if (front_car_id != -1) {
+			double xinterp = (safe_dist / leading_dist);
+			double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
+			target_vel = v_max * (1-xinterp) + neighbor_speed * xinterp;
+		}
+		double dv = 2;
+		double a = dv/(tend - tstart);
+		while (a > frac * a_max && dv > 0){
+			dv -= 0.01;
+			a = dv/(tend - tstart);
+		}
+		this->ref_vel += dv;
+		this->ref_vel = min(target_vel, this->ref_vel);
+	}
+	else if (leading_dist > safe_dist) {
+
+		cout << "match speed" << endl;
+		double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
+		if (neighbor_speed > this->ref_vel)
+		{
+			double dv = neighbor_speed - this->ref_vel;
+			double dvs = (dv < 0 ? -1 : 1);
+			double a = abs(dv/(tend - tstart));
+			while (a > frac * a_max && dv != 0){
+				dv = dvs * (abs(dv) - 0.05);
+				a = abs(dv/(tend - tstart));
+			}
+			this->ref_vel += dv;
+			this->ref_vel = min(v_max, this->ref_vel);
+		}
+	}			
+	else if (leading_dist < safe_dist) {
+		double neighbor_speed = neighbors[front_car_id].get_vel()[0]; //s_state[1];
+
+		double dv = -5;
+		double a = abs(dv/(tend - tstart));
+		while (a > 0.5 * a_max && dv < 0){
+			dv += 0.01;
+			a = abs(dv/(tend - tstart));
+		}
+		this->ref_vel += dv;
+		this->ref_vel = max(neighbor_speed, this->ref_vel);
+		cout << "decelerate = " << dv << endl;
+	}
+}
+
+int Vehicle::select_lane()
+{
+	this->target_lane = this->lane;
+	if (this->get_vel()[0] < this->v_min)
+	{
+		return this->target_lane;
+	}
+	vector<bool> free_lane({true, true, true});
+	vector<double> costs({0,0,0});
+
+	double ref_dist = 10000;
+	int curr_leading_car = this->get_leading(this->lane, ref_dist);
+	if (curr_leading_car == -1) {
+		ref_dist = this->safe_dist;
+	}
+
+	for (int i_lane = 0; i_lane < 3; i_lane++)
+	{
+		double lane_leading_distance = 10000, lane_trailing_distance = 10000;
+		this->get_leading(i_lane, lane_leading_distance);
+		this->get_trailing(i_lane, lane_trailing_distance);
+		cout << "leading/trailing distance[" << i_lane << "] = " << lane_leading_distance << "," << lane_trailing_distance << endl;
+	}
+
+	double leading_distance_weight = 1;
+	double change_lane_weight = 0.5;
+	double leading_safety_weight = 10;
+	double trailing_safety_weight = 100;
+	double no_leading_weight = 1;//0.5;
+	for (int lane_candidate = 0; lane_candidate < 3; lane_candidate++)
+	{
+		// retrieve data
+		vector<double> dists = this->get_distances(lane_candidate);
+		double lane_leading_distance = 10000, lane_trailing_distance = -10000;
+		int leading = this->get_leading(lane_candidate, lane_leading_distance);
+		int trailing = this->get_trailing(lane_candidate, lane_trailing_distance);
+		assert(lane_trailing_distance < 0);
+		assert(lane_leading_distance > 0);
+
+		// calculate costs
+		// double fwd_dist_cost = exp(1 - lane_leading_distance / ref_dist); // passes 1 for small distance
+
+		double leading_distance_cost = eval_leading_distance_cost(*this, lane_candidate, ref_dist);
+		double change_lane_cost = eval_change_lane_cost(*this, lane_candidate); //pow(car.lane - lane_candidate, 2);
+		double leading_safety_cost = eval_leading_safety_cost(*this, lane_candidate, safe_dist);
+		double no_leading_cost = eval_is_leading_vehicle(*this, lane_candidate, ref_dist);
+		double trailing_safety_cost = eval_trailing_safety_cost(*this, lane_candidate, safe_dist, this->ref_vel);
+
+		// sum costs
+		costs[lane_candidate] += leading_distance_weight * leading_distance_cost;
+		costs[lane_candidate] += change_lane_weight * change_lane_cost;
+		costs[lane_candidate] += leading_safety_weight * leading_safety_cost;
+		costs[lane_candidate] += trailing_safety_weight * trailing_safety_cost;
+		// costs[lane_candidate] += no_leading_weight * no_leading_cost;
+
+
+		// set no-gos
+		if (abs(lane_trailing_distance) < safe_dist / 2 && lane_candidate != this->lane) {
+			costs[lane_candidate] = 1000;
+		}
+		cout << "costs[" << lane_candidate << "] = " << costs[lane_candidate] << endl;
+		
+	}
+	cout << endl;
+
+	// assert(costs[car.lane] < 20);
+	int min_cost_lane = argmin(costs);
+	/*if (abs(min_cost_lane - car.lane) > 1 && free_lane[1]) {
+		car.lane = 1;
+	}*/
+	if (this->lane == 1)// && (costs[0] < costs[1] || costs[2] < costs[1])) 
+	{
+		this->target_lane = min_cost_lane;
+		cout << "1 -> " << this->lane << endl;
+	}
+
+	else if ((this->lane == 0 && costs[0] > costs[1]) || (this->lane == 2 && costs[1] < costs[2]))
+	{
+		cout << this->lane << " -> 1" << endl;
+		this->target_lane = 1;
+	}
+
+	return this->target_lane;
+}
+
+
+bool Vehicle::generate_trajectory(const vector<double> previous_path_x, const vector<double> previous_path_y, const double tstart, const double tend,
+	const double ref_dist, const double car_speed, const double angle, const double prev_pos_x, const double pos_x, const double prev_pos_y, const double pos_y, const double pos_s, 
+	const double pos_d, const vector<double>& map_x, const vector<double>& map_y,  const vector<double>& map_s, vector<double>& next_x_vals, vector<double>& next_y_vals)
+
+{
+	// vector<double> next_x_vals, next_y_vals;
+	int prev_path_size = previous_path_x.size();
+	for(int i = 0; i < prev_path_size; i++)
+	{
+		next_x_vals.push_back(previous_path_x[i]);
+		next_y_vals.push_back(previous_path_y[i]);
+	}
+
+	// vector<double> pos_sd = this->get_loc();
+	// double pos_s = this->get_loc()[0];
+	// double pos_d = this->get_loc()[1];
+	
+	trajectory trajectory_planner("spline");
+
+	// previous anchors
+	vector<double> anchor_x, anchor_y;
+	if (prev_pos_x != pos_x || prev_pos_y != pos_y) 
+	{
+		anchor_x.push_back(prev_pos_x);
+		anchor_y.push_back(prev_pos_y);
+	}
+
+	anchor_x.push_back(pos_x);
+	anchor_y.push_back(pos_y);
+	// trajectory_planner.create_trajectory(vector<double> x, vector<double>y, const double start_d, const double end_d)
+
+
+	// next anchors
+	for (int id = 0; id < 3; id++)
+	{
+		double next_pos_d = get_pose(this->target_lane);
+		vector<double> wp = getXY(pos_s + (id+1) * ref_dist * 1.5, next_pos_d, map_s, map_x, map_y);
+		anchor_x.push_back(wp[0]);
+		anchor_y.push_back(wp[1]);
+	}
+
+
+	// transform to car coordiantes
+	for (int ia = 0; ia < anchor_x.size(); ia++)
+	{
+		double _x = anchor_x[ia] - pos_x, _y = anchor_y[ia] - pos_y;
+		anchor_x[ia] = _x * cos(angle) + _y * sin(angle);
+		anchor_y[ia] = _y * cos(angle) - _x * sin(angle);
+	}
+
+
+	// create a spline
+	trajectory estimator("spline");	// tk::spline spline_estimator;
+	
+
+	// spline_estimator.set_points(anchor_x, anchor_y);
+	estimator.set_points(anchor_x, anchor_y);
+
+	//D = pos_x + car_speed * (T - t_prev) +  0.5 * a_max * pow(T - t_prev, 2);
+	double dt = tend - tstart;
+
+	// double D = pos_x + this->get_vel()[1] * dt +  0.5 * a_max * pow(dt, 2);
+	double D = pos_x + car_speed * dt +  0.5 * a_max * pow(dt, 2);
+
+	double target_x = D, target_y = estimator(D); //spline_estimator(D);
+
+	double distance = sqrt(pow(target_x, 2) + pow(target_y, 2));
+
+	int N = (int)(distance / (this->sampling_time * this->ref_vel)); // /2.24
+
+	for(int i = 0; i < 50-prev_path_size; i++)
+	{    
+		double xc = (i+1) * target_x / N;
+		double yc = estimator(xc); //spline_estimator(xc);
+
+		double x = xc * cos(angle) - yc * sin(angle) + pos_x;
+		double y = xc * sin(angle) + yc * cos(angle) + pos_y;
+
+		next_x_vals.push_back(x);
+		next_y_vals.push_back(y);
+	}
+
+	return true;
+}
 
 bool Vehicle::is_infront_of(Vehicle& car, double& dist)
 {
@@ -206,25 +455,6 @@ bool Vehicle::is_infront_of(Vehicle& car, double& dist)
 	// cout << "this->s_state[0]" 
 	dist = this->s_state[0] - car.s_state[0];
 	return true;
-}
-
-// double Vehicle::get_leading_distance()
-// {
-// 	double dist = -1;
-// 	if (this->front_vehicle) {
-// 		dist = this->front_vehicle->s_state[0] - this->s_state[0];
-// 		cout << dist << ", " << this->front_vehicle->s_state[0] << ", " << this->s_state[0] << endl;
-// 		cout << "this->front_vehicle=" << this->front_vehicle << endl;
-// 	}
-// 	return dist;
-// }
-
-
-
-void Vehicle::set_map(const vector<double> &maps_x, const vector<double> &maps_y)
-{
-	this->maps_x = maps_x;
-	this->maps_y = maps_y;
 }
 
 

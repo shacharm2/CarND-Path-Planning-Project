@@ -1,3 +1,4 @@
+#pragma once
 #include <string>
 #include <vector>
 #include <cassert>
@@ -49,17 +50,28 @@ public:
 	int get_leading(int target_lane, double& distance);
 	int get_trailing(int target_lane, double& distance);
 	double predict(const double t);
-	void set_sdt(const double s, const double d, const double t);
+	void set_sdt(const double s, const double d, const double sdot, const double t);
+	void set_safe_distance(const double safe_dist);
 	void generate_trajectories();
 	vector<Vehicle> neighbors;
-	int select_lane();
+
 	vector<double> get_distances(int lane);
 
 	bool is_infront_of(Vehicle& car, double& dist);
-	void set_map(const vector<double> &maps_x, const vector<double> &maps_y);
+
 	void cycle(PhysicalState physical_state, const vector<double> x, const vector<double> y);
 	vector< vector<double> > get_frenet() const;
 	void set_neighbors(vector<Vehicle>& neighbors);
+	vector<double> get_loc() const;
+	vector<double> get_vel() const;
+	vector<double> get_acc() const;
+
+	void set_reference_velocity(const double tstart, const double tend, const double safe_dist);
+	int select_lane();
+	bool generate_trajectory(const vector<double> previous_path_x, const vector<double> previous_path_y, const double tstart, const double tend,
+	const double ref_dist, const double car_speed, const double angle, const double prev_pos_x, const double pos_x, const double prev_pos_y, const double pos_y, const double pos_s, 
+	const double pos_d, const vector<double>& map_x, const vector<double>& map_y,  const vector<double>& map_s, vector<double>& next_x_vals, vector<double>& next_y_vals);
+	
 
 	//double operator() (double x) const;
 	void add(const double x, const double y);
@@ -76,15 +88,24 @@ public:
 	vector< vector<double> > get_init_target(const double x, const double y, const double angle, const double v, const double T, const int target_lane);
 
 	PhysicalState init_loc, curr_loc;
-	vector<double> s_state, d_state;
+
 	double t = 0;
 
 	trajectory jmt_estimator_s = trajectory("JMT");
 	trajectory jmt_estimator_d = trajectory("JMT");
-	double sampling_time;
-	int lane;
+	double ref_vel;
+	unsigned int lane, target_lane;
+
 private:
+	const double sampling_time = 0.02;
+	double safe_dist = 0;
+	const double v_max = 21.5; // m/sec ~ 48 mph 
+	const double v_min = 10; // m/sec minum for manuvering
 	
+	const double a_max = 10; // m/s^2
+	const double max_jerk = 10; // m/s^3
+
+	vector<double> s_state, d_state;
 	const double frame_time = 1;
 	void update(const vector<double> x, const vector<double> y);	
 	

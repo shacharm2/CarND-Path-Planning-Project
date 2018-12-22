@@ -1,5 +1,20 @@
 #include "utils.h"
 
+int argmin(vector<double> costs)
+{
+	double min_cost = 1e99;
+	int id = -1;
+	for (int iv = 0; iv < costs.size(); iv++)
+	{
+		if (costs[iv] < min_cost)
+		{
+			min_cost = costs[iv];
+			id = iv;
+		}
+	}
+	return id;
+}
+
 double distance(double x1, double y1, double x2, double y2)
 {
 	return sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
