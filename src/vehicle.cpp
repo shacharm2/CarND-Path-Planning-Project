@@ -360,6 +360,118 @@ int Vehicle::select_lane()
 }
 
 
+vector<vector<double> > Vehicle::generate_trajectory(const vector<double> previous_path_x, const vector<double> previous_path_y, const double tstart, const double tend,
+	const double ref_dist, const double car_speed, const double angle, const double prev_pos_x, const double pos_x, const double prev_pos_y, const double pos_y, const double pos_s, 
+	const double pos_d, const vector<double>& map_x, const vector<double>& map_y,  const vector<double>& map_s, vector<double>& next_x_vals, vector<double>& next_y_vals)
+
+{
+	// vector<double> next_x_vals, next_y_vals;
+	int prev_path_size = previous_path_x.size();
+	for(int i = 0; i < prev_path_size; i++)
+	{
+		next_x_vals.push_back(previous_path_x[i]);
+		next_y_vals.push_back(previous_path_y[i]);
+	}
+
+	// vector<double> pos_sd = this->get_loc();
+	// double pos_s = this->get_loc()[0];
+	// double pos_d = this->get_loc()[1];
+	
+	trajectory trajectory_planner("spline");
+
+	// previous anchors
+	vector<double> anchor_x, anchor_y;
+	if (prev_pos_x != pos_x || prev_pos_y != pos_y) 
+	{
+		anchor_x.push_back(prev_pos_x);
+		anchor_y.push_back(prev_pos_y);
+	}
+
+	anchor_x.push_back(pos_x);
+	anchor_y.push_back(pos_y);
+	// trajectory_planner.create_trajectory(vector<double> x, vector<double>y, const double start_d, const double end_d)
+
+
+	// next anchors
+	for (int id = 0; id < 3; id++)
+	{
+		double next_pos_d = get_pose(this->target_lane);
+		vector<double> wp = getXY(pos_s + (id+1) * ref_dist * 1.5, next_pos_d, map_s, map_x, map_y);
+		anchor_x.push_back(wp[0]);
+		anchor_y.push_back(wp[1]);
+	}
+
+
+	// transform to car coordiantes
+	cout << "rotated" <<endl;
+	for (int ia = 0; ia < anchor_x.size(); ia++)
+	{
+		double _x = anchor_x[ia] - pos_x, _y = anchor_y[ia] - pos_y;
+		anchor_x[ia] = _x * cos(angle) + _y * sin(angle);
+		anchor_y[ia] = _y * cos(angle) - _x * sin(angle);
+		cout << ia << " " << anchor_x[ia] << " " << anchor_y[ia] << endl;
+	}
+	cout << endl;
+
+
+	// create a spline
+	trajectory estimator("spline");	// tk::spline spline_estimator;
+	
+
+	// spline_estimator.set_points(anchor_x, anchor_y);
+	estimator.set_points(anchor_x, anchor_y);
+
+	//D = pos_x + car_speed * (T - t_prev) +  0.5 * a_max * pow(T - t_prev, 2);
+	double dt = tend - tstart;
+
+	// double D = pos_x + this->get_vel()[1] * dt +  0.5 * a_max * pow(dt, 2);
+	double D = pos_x + car_speed * dt +  0.5 * a_max * pow(dt, 2);
+
+	double target_x = D, target_y = estimator(D); //spline_estimator(D);
+
+	double distance = sqrt(pow(target_x, 2) + pow(target_y, 2));
+
+	cout << this->sampling_time << endl;
+	int N = (int)(distance / (this->sampling_time * this->ref_vel)); // /2.24
+	cout << "N=" <<N<<endl;
+	cout << "target=" << target_x <<","<<target_y<<endl;
+
+	// D^2 + spline_estimator(D) ^ 2 = distance
+
+	// vector<double> X, Y;
+	// double vx, vy;
+
+
+	for(int i = 0; i < 50-prev_path_size; i++)
+	{    
+		double xc = (i+1) * target_x / N;
+		double yc = estimator(xc); //spline_estimator(xc);
+		// cout << "xc,yc=" << xc << "," << yc << endl;
+
+		double x = xc * cos(angle) - yc * sin(angle) + pos_x;
+		double y = xc * sin(angle) + yc * cos(angle) + pos_y;
+		// vector<double> xy = getXY(xf_s, yf_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+		next_x_vals.push_back(x);
+		next_y_vals.push_back(y);
+		// car.add(x, y);
+		// X.push_back(x);
+		// Y.push_back(y);
+		// if (X.size() > 3)
+		// {
+		// 	X.erase(X.begin());
+		// 	Y.erase(Y.begin());
+		// 	double ax = (X[0] - 2 * X[1] + X[2]) / (dt * dt);
+		// 	double ay = (Y[0] - 2 * Y[1] + Y[2]) / (dt * dt);
+		// }
+	}
+	
+	vector<vector<double> > next_trajectory;
+	next_trajectory.push_back(next_x_vals);
+	next_trajectory.push_back(next_y_vals);
+
+	return next_trajectory;
+}
+
 bool Vehicle::is_infront_of(Vehicle& car, double& dist)
 {
 	// s_state, d_state

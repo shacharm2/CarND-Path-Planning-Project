@@ -68,6 +68,9 @@ public:
 
 	void set_reference_velocity(const double tstart, const double tend, const double safe_dist);
 	int select_lane();
+	vector<vector<double> > generate_trajectory(const vector<double> previous_path_x, const vector<double> previous_path_y, const double tstart, const double tend,
+	const double ref_dist, const double car_speed, const double angle, const double prev_pos_x, const double pos_x, const double prev_pos_y, const double pos_y, const double pos_s, 
+	const double pos_d, const vector<double>& map_x, const vector<double>& map_y,  const vector<double>& map_s, vector<double>& next_x_vals, vector<double>& next_y_vals);
 	
 
 	//double operator() (double x) const;
@@ -90,11 +93,11 @@ public:
 
 	trajectory jmt_estimator_s = trajectory("JMT");
 	trajectory jmt_estimator_d = trajectory("JMT");
-	double sampling_time;
 	double ref_vel;
 	unsigned int lane, target_lane;
 
 private:
+	const double sampling_time = 0.02;
 	double safe_dist = 0;
 	const double v_max = 21.5; // m/sec ~ 48 mph 
 	const double v_min = 10; // m/sec minum for manuvering
